@@ -27,17 +27,18 @@ export const cardConfigs = [
   {
     type: 'xiaoshi-video-card',
     name: '消逝卡片组-视频卡',
-    description: '加载api视频背景'
+    description: '加载api视频背景',
   },  
   {
     type: 'xiaoshi-image-card',
     name: '消逝卡片组-图片卡',
-    description: '加载api图片背景'
+    description: '加载api图片背景',
   },
   {
     type: 'xiaoshi-time-card',
     name: '消逝卡片组-时间卡',
-    description: '显示时间（需要配合万年历NR）'
+    description: '显示时间（需要配合万年历NR）',
+		preview: true
   },
   {
     type: 'xiaoshi-grid-card',
@@ -57,21 +58,25 @@ export const cardConfigs = [
   {
     type: 'xiaoshi-state-grid-pad',
     name: '消逝卡片组-国网卡片-日历平板端',
-    description: '国网信息卡（需要配合国网NR）'
+    description: '国网信息卡（需要配合国网NR）',
+		preview: true
   },
   {
     type: 'xiaoshi-lunar',
-    name: '消逝卡片组-万年历日历',
-    description: '万年历日历（需要配合万年历NR）'
+    name: '消逝卡片组 万年历日历',
+    description: '万年历日历（需要配合万年历NR）',
+		preview: true
   },
   {
     type: 'xiaoshi-lunar-phone',
-    name: '消逝卡片组-万年历手机端',
-    description: '万年历手机端（需要配合万年历NR）'
+    name: '消逝卡片组 万年历手机端',
+    description: '万年历手机端（需要配合万年历NR）',
+		preview: true
   },
   {
     type: 'xiaoshi-lunar-pad',
-    name: '消逝卡片组-万年历平板端',
-    description: '万年历平板端（需要配合万年历NR）'
+    name: '消逝卡片组 万年历平板端',
+    description: '万年历平板端（需要配合万年历NR）',
+		preview: true
   },
 ];
