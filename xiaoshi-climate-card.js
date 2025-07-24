@@ -9,7 +9,8 @@ export class XiaoshiClimateCard extends LitElement {
       buttons: { type: Array },
       theme: { type: String },
       _timerInterval: { state: true },
-      auto_show: { type: Boolean }
+      auto_show: { type: Boolean },
+      _externalTempSensor: { type: String } 
     };
   }
   
@@ -17,6 +18,7 @@ export class XiaoshiClimateCard extends LitElement {
     this.config = config;
     this.buttons = config.buttons || [];
     this.auto_show = config.auto_show || false;
+    this._externalTempSensor = config.temperature || null;
     if (config.width !== undefined) this.width = config.width;
   }
   
@@ -53,28 +55,19 @@ export class XiaoshiClimateCard extends LitElement {
         width: 100%;
         height: 100%;
         background: linear-gradient(90deg, var(--active-color), transparent 50%);
-        opacity: 0.5;
+        opacity: 0.8;
         z-index: 0;
       }
 
-      .wave-container {
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        overflow: hidden;
-        z-index: 0;
-        pointer-events: none;
-      }
-      
-      .wave-canvas {
+      #chart-container {
         position: absolute;
         bottom: 0;
         left: 0;
         width: 100%;
-        height: 40%;
+        height: auto;
+        overflow: hidden;
         z-index: 0;
+        pointer-events: none;
       }
 
       .name-area {
@@ -420,9 +413,7 @@ export class XiaoshiClimateCard extends LitElement {
     this.theme = 'on';
     this.width = '100%';
     this._timerInterval = null;
-    this._waveAnimationFrame = null;
-    this._wavePhase = 0;
-    this._waveHeightRatio = 0.3; 
+    this._chart = null;
   }
 
   _evaluateTheme() {
@@ -442,88 +433,190 @@ export class XiaoshiClimateCard extends LitElement {
     }
   }
 
-  updated(changedProperties) {
-    if (changedProperties.has('hass') || changedProperties.has('config')) {
-      const entity = this.hass?.states[this.config?.entity];
-      const isOn = entity?.state !== 'off';
+  async firstUpdated() {
+    await this._loadApexCharts();
+    this._fetchDataAndRenderChart();
+  }  
+
+    updated(changedProperties) {
+        if (changedProperties.has('hass') || changedProperties.has('config')) {
+           this._fetchDataAndRenderChart();
+        }
+    }
+
+  async _loadApexCharts() {
+    if (!window.ApexCharts) {
+      await new Promise((resolve) => {
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/apexcharts';
+        script.onload = resolve;
+        document.head.appendChild(script);
+      });
+    }
+  }
+
+  async _fetchDataAndRenderChart() {
+      const now = new Date();
+      const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
       
-      if (isOn) {
-        this._startWaveAnimation();
+      // 获取历史数据
+      const entityId = this._externalTempSensor || this.config.entity;
+      const result = await this.hass.callWS({
+        type: 'history/history_during_period',
+        start_time: yesterday.toISOString(),
+        end_time: now.toISOString(),
+        entity_ids: [entityId],
+        significant_changes_only: false,
+        minimal_response: false,
+        no_attributes: false
+      });
+
+        if (!result?.[entityId]?.length) {
+          return;
+        }
+
+    const rawData = result[entityId]
+      .filter(entry => {
+        // 根据实体类型处理不同数据
+        if (entityId.startsWith('sensor.')) {
+          return !isNaN(parseFloat(entry.s));
+        } else {
+          return entry.a && !isNaN(parseFloat(entry.a.current_temperature));
+        }
+      })
+      .map(entry => ({
+        timestamp: entry.lu * 1000,
+        temperature: entityId.startsWith('sensor.') ? 
+          parseFloat(entry.s) : 
+          parseFloat(entry.a.current_temperature)
+      }))
+      .sort((a, b) => a.timestamp - b.timestamp);
+
+      // 10分钟平均数据处理
+      const averagedData = this._calculate10MinuteAverages(rawData);
+
+      this._renderChart(averagedData);
+  }
+
+  _calculate10MinuteAverages(data) {
+    if (data.length === 0) return [];
+    
+    const TEN_MINUTES = 10 * 60 * 1000; // 10分钟毫秒数
+    const averagedData = [];
+    let currentWindowStart = data[0].timestamp;
+    let currentWindowEnd = currentWindowStart + TEN_MINUTES;
+    let currentWindowValues = [];
+    
+    for (const point of data) {
+      if (point.timestamp < currentWindowEnd) {
+        currentWindowValues.push(point.temperature);
       } else {
-        this._stopWaveAnimation();
+        // 计算当前窗口的平均值
+        if (currentWindowValues.length > 0) {
+          const sum = currentWindowValues.reduce((a, b) => a + b, 0);
+          const avg = sum / currentWindowValues.length;
+          averagedData.push([
+            currentWindowStart + TEN_MINUTES / 2, // 使用窗口中点作为时间戳
+            parseFloat(avg.toFixed(1)) // 保留1位小数
+          ]);
+        }
+        
+        // 移动到下一个窗口
+        currentWindowStart = currentWindowEnd;
+        currentWindowEnd = currentWindowStart + TEN_MINUTES;
+        currentWindowValues = [point.temperature];
       }
     }
+    
+    // 处理最后一个窗口
+    if (currentWindowValues.length > 0) {
+      const sum = currentWindowValues.reduce((a, b) => a + b, 0);
+      const avg = sum / currentWindowValues.length;
+      averagedData.push([
+        currentWindowStart + TEN_MINUTES / 2,
+        parseFloat(avg.toFixed(1))
+      ]);
+    }
+    
+    return averagedData;
   }
 
-  _startWaveAnimation() {
-    if (!this._waveAnimationFrame) {
-      this._animateWave();
+  _renderChart(data) {
+    const container = this.shadowRoot.getElementById('chart-container');
+    if (!container) return;
+    
+    container.innerHTML = '';
+    
+    if (this._chart) {
+      this._chart.destroy();
     }
-  }
-
-  _stopWaveAnimation() {
-    if (this._waveAnimationFrame) {
-      cancelAnimationFrame(this._waveAnimationFrame);
-      this._waveAnimationFrame = null;
-    }
-  }
-
-  _animateWave() {
-    const container = this.shadowRoot?.querySelector('.wave-container');
-    if (!container) {
-      this._waveAnimationFrame = requestAnimationFrame(() => this._animateWave());
-      return;
-    }
-
-    let canvas = container.querySelector('canvas');
-    if (!canvas) {
-      canvas = document.createElement('canvas');
-      canvas.className = 'wave-canvas';
-      container.appendChild(canvas);
-    }
-
-    const ctx = canvas.getContext('2d');
-    const width = canvas.width = container.offsetWidth;
-    const height = canvas.height = container.offsetHeight * 0.4; // 增大波浪高度
-    this._wavePhase += 0.02; // 调整波浪速度
-    ctx.clearRect(0, 0, width, height);
-    const drawWave = (offset, heightRatio, color) => {
-        ctx.beginPath();
-        ctx.moveTo(0, height);
-        for (let x = 0; x <= width; x++) {
-            const y = (
-                Math.sin(x * 0.01 + this._wavePhase + offset) * 15 + 
-                Math.sin(x * 0.02 + this._wavePhase * 1.3 + offset) * 8 +
-                Math.sin(x * 0.005 + this._wavePhase * 0.7 + offset) * 5
-            ) * heightRatio + (height - 30);
-            
-            ctx.lineTo(x, y);
-        }
-        ctx.lineTo(width, height);
-        ctx.lineTo(0, height);
-        const gradient = ctx.createLinearGradient(0, height - 50, 0, height);
-        gradient.addColorStop(1, color);
-        gradient.addColorStop(0, color);
-        
-        ctx.fillStyle = gradient;
-        ctx.fill();
-    };
+    
+    
     const entity = this.hass.states[this.config.entity];
-    const state = entity.state;
+    const state = entity?.state || 'off';
+    let statusColor = 'rgb(238,99,99)';
+    if (state === 'cool') statusColor = 'rgb(33,150,243)';
+    else if (state === 'heat') statusColor = 'rgb(254,111,33)';
+    else if (state === 'dry') statusColor = 'rgb(255,151,0)';
+    else if (state === 'fan' || state === 'fan_only') statusColor = 'rgb(0,188,213)';
+    else if (state === 'auto') statusColor = 'rgb(238,130,238)'
+    
+    this._chart = new ApexCharts(container, {
+      series: [{
+        data: data
+      }],
+      chart: {
+        type: 'area',
+        height: '30%',
+        width: '100%',
+        sparkline: { enabled: true },
+        animations: { enabled: false },
+        toolbar: { show: false }
+      },
+      colors: [statusColor],
+      stroke: {
+        width: 1,
+        curve: 'smooth'
+      },
+      fill: {
+        type: 'gradient',
+        gradient: {
+          shadeIntensity: 0.5,
+          opacityFrom: 0.6,
+          opacityTo: 0.2,
+          stops: [0, 100],
+          colorStops: [
+            { offset: 0, color: statusColor, opacity: 0.6 },
+            { offset: 100, color: statusColor, opacity: 0.3 }
+          ]
+        }
+      },
+      xaxis: {
+        labels: { show: false },
+        axisBorder: { show: false },
+        axisTicks: { show: false },
+        tooltip: { enabled: false }
+      },
+      yaxis: {
+          show: false,
+          min: Math.min(...data.map(d => d[1])) - 1
+      },
+      grid: { show: false },
+      tooltip: { enabled: false},
+      dataLabels: { enabled: false },
+      legend: { show: false },
+      markers: { size: 0 }
+    });
 
-    let mainColor = '#2196f3'; // 默认颜色（cool的蓝色）
-    if (state === 'cool') mainColor = '#2196f3'; 
-    else if (state === 'heat') mainColor = '#fe6f21';
-    else if (state === 'dry') mainColor = '#ff9700'; 
-    else if (state === 'fan') mainColor = '#00bcd5'; 
-    else if (state === 'fan_only') mainColor = '#00bcd5';
-    else if (state === 'auto') mainColor = '#c8bcd5';
-    else if (state === 'off') mainColor = '#aaaaaa';
-    drawWave(0, 1, `${mainColor}40`); 
-    drawWave(Math.PI/2, 0.8, `${mainColor}30`);
-    drawWave(Math.PI, 0.6, `${mainColor}20`);
-    this._waveAnimationFrame = requestAnimationFrame(() => this._animateWave());
-}
+    this._chart.render();
+  }
+
+  disconnectedCallback() {
+    if (this._chart) {
+      this._chart.destroy();
+    }
+    super.disconnectedCallback();
+  }
 
   render() {
     if (!this.hass || !this.config.entity) {
@@ -543,21 +636,31 @@ export class XiaoshiClimateCard extends LitElement {
     }
 
     const attrs = entity.attributes;
-    const current_temperature = typeof attrs.current_temperature === 'number' ? `室温: ${attrs.current_temperature}°C` : '';
     const temperature =  typeof attrs.temperature === 'number'  ? `${attrs.temperature.toFixed(1)}°C`  : '';
-
+    
+    let current_temperature = '';
+    if (this._externalTempSensor) {
+      const tempEntity = this.hass.states[this._externalTempSensor];
+      if (tempEntity && !isNaN(parseFloat(tempEntity.state))) {
+        current_temperature = `室温: ${parseFloat(tempEntity.state).toFixed(1)}°C`;
+      }
+    } else if (typeof entity.attributes.current_temperature === 'number') {
+      current_temperature = `室温: ${entity.attributes.current_temperature.toFixed(1)}°C`;
+    }
+    
+    
     const theme = this._evaluateTheme();
     const fgColor = theme === 'on' ? 'rgb(0, 0, 0)' : 'rgb(255, 255, 255)';
     const bgColor = theme === 'on' ? 'rgb(255, 255, 255)' : 'rgb(50, 50, 50)';
     const buttonBg = theme === 'on' ? 'rgb(50,50,50)' : 'rgb(120,120,120)';
     const buttonFg = 'rgb(250,250,250)';
 
-    let statusColor = 'rgb(250,250,250)';
+    let statusColor = 'rgb(238,99,99)';
     if (state === 'cool') statusColor = 'rgb(33,150,243)';
     else if (state === 'heat') statusColor = 'rgb(254,111,33)';
     else if (state === 'dry') statusColor = 'rgb(255,151,0)';
     else if (state === 'fan' || state === 'fan_only') statusColor = 'rgb(0,188,213)';
-    else if (state === 'auto') statusColor = 'rgb(200,188,213)';
+    else if (state === 'auto') statusColor = 'rgb(238,130,238)'
     else if (state === 'off') statusColor = 'rgb(250,250,250)';
 
     const stateTranslations = {
@@ -613,8 +716,9 @@ export class XiaoshiClimateCard extends LitElement {
                                 --button-bg: ${buttonBg}; 
                                 --button-fg: ${buttonFg}; 
                                 --active-color: ${statusColor};
-                                grid-template-rows: ${gridTemplateRows}">                                           
-        ${isOn ? html`<div class="active-gradient"></div><div class="wave-container"></div>` : ''}
+                                grid-template-rows: ${gridTemplateRows}">
+        <div id="chart-container"></div>
+        ${isOn ? html`<div class="active-gradient"></div>` : ''}
         <div class="content-container">
             <div class="name-area">${attrs.friendly_name}</div>
                 <div class="status-area" style="color: ${fgColor}">${translatedState}：
@@ -710,16 +814,13 @@ export class XiaoshiClimateCard extends LitElement {
 
     const climateEntity = this.hass.states[this.config.entity];
     const climateState = climateEntity ? climateEntity.state : 'off';
-    const isOn = climateState !== 'off';
     
-    let activeColor = 'rgb(33,150,243)';
-    if (isOn) {
-        if (climateState === 'cool') activeColor = 'rgb(33,150,243)';
-        else if (climateState === 'heat') activeColor = 'rgb(254,111,33)';
-        else if (climateState === 'dry') activeColor = 'rgb(255,151,0)';
-        else if (climateState === 'fan' || climateState === 'fan_only') activeColor = 'rgb(0,188,213)';
-        else if (climateState === 'auto') activeColor = 'rgb(200,188,213)';
-    }
+    let activeColor = 'rgb(238,99,99)';
+    if (climateState === 'cool') activeColor = 'rgb(33,150,243)';
+    else if (climateState === 'heat') activeColor = 'rgb(254,111,33)';
+    else if (climateState === 'dry') activeColor = 'rgb(255,151,0)';
+    else if (climateState === 'fan' || climateState === 'fan_only') activeColor = 'rgb(0,188,213)';
+    else if (climateState === 'auto') activeColor = 'rgb(238,130,238)';
     
     const now = new Date();
     const finishesAt = new Date(timerEntity.attributes.finishes_at || 0);
@@ -855,15 +956,13 @@ _renderExtraButtons() {
     const isOn = state !== 'off';
     const theme = this._evaluateTheme();
     const fgColor = theme === 'on' ? 'rgb(0, 0, 0)' : 'rgb(255, 255, 255)';
-    
-    let activeColor = theme === 'on' ? 'rgb(75,0,130)' : 'rgb(216,191,216)';
-    if (isOn) {
-        if (state === 'cool') activeColor = 'rgb(33,150,243)';
-        else if (state === 'heat') activeColor = 'rgb(254,111,33)';
-        else if (state === 'dry') activeColor = 'rgb(255,151,0)';
-        else if (state === 'fan' || state === 'fan_only') activeColor = 'rgb(0,188,213)';
-        else if (state === 'auto') activeColor = 'rgb(238,130,238)';
-    }
+    let activeColor = 'rgb(238,99,99)';
+    if (state === 'cool') activeColor = 'rgb(33,150,243)';
+    else if (state === 'heat') activeColor = 'rgb(254,111,33)';
+    else if (state === 'dry') activeColor = 'rgb(255,151,0)';
+    else if (state === 'fan' || state === 'fan_only') activeColor = 'rgb(0,188,213)';
+    else if (state === 'auto') activeColor = 'rgb(238,130,238)';
+ 
 
     return buttonsToShow.map(buttonEntityId => {
         const entity = this.hass.states[buttonEntityId];
