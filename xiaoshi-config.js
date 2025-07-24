@@ -2,7 +2,8 @@ export const cardConfigs = [
   {
     type: 'xiaoshi-climate-card',
     name: '消逝卡片组-空调卡',
-    description: '空调卡'
+    description: '空调卡',
+    preview: true
   },
   {
     type: 'xiaoshi-computer-card',
