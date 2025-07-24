@@ -1,7 +1,269 @@
 import { LitElement, html, css } from "https://unpkg.com/lit-element@2.4.0/lit-element.js?module";
 
-export class XiaoshiClimateCard extends LitElement {
+class XiaoshiClimateCardEditor extends LitElement {
   static get properties() {
+    return {
+      hass: { type: Object },
+      config: { type: Object }
+    };
+  }
+
+  setConfig(config) {
+    this.config = config || {};
+  }
+
+  async firstUpdated() {
+    await this._setDefaultClimateEntity();
+  }
+
+  async _setDefaultClimateEntity() {
+    if (this.config?.entity) return;
+    const entities = Object.keys(this.hass.states).filter(
+      eid => eid.startsWith('climate.')
+    );
+    
+    if (entities.length > 0) {
+      this.config = {
+        ...(this.config || {}),
+        entity: entities[0]
+      };
+      this._fireEvent();
+    }
+  }
+
+  static get styles() {
+    return css`
+      .card-config {
+        padding: 16px;
+      }
+      .row {
+        margin-bottom: 16px;
+      }
+      .label {
+        margin-bottom: 8px;
+        font-weight: bold;
+      }
+      .buttons-row {
+        display: flex;
+        align-items: center;
+        margin-top: 8px;
+      }
+      .add-button {
+        margin-left: 8px;
+      }
+    `;
+  }
+
+  render() {
+    if (!this.hass) return html``;
+
+    return html`
+      <div class="card-config">
+        <!-- 主实体选择 -->
+        <div class="row">
+          <div class="label">空调实体 (必选)</div>
+          <ha-entity-picker
+            .hass=${this.hass}
+            .value=${this.config?.entity || ''}
+            .includeDomains=${['climate']}
+            @value-changed=${this._valueChanged}
+            .configValue=${'entity'}
+            allow-custom-entity
+            .disabled=${!this.hass}
+          ></ha-entity-picker>
+          ${!this.config?.entity ? html`
+            <div class="hint">正在加载可用空调...</div>
+          ` : ''}
+        </div>
+
+        <!-- 温度传感器 -->
+        <div class="row">
+          <div class="label">温度传感器 (可选)</div>
+          <ha-entity-picker
+            .hass=${this.hass}
+            .value=${this.config.temperature || ''}
+            .includeDomains=${['sensor']}
+            @value-changed=${this._valueChanged}
+            .configValue=${'temperature'}
+            allow-custom-entity
+          ></ha-entity-picker>
+        </div>
+
+        <!-- 定时器 -->
+        <div class="row">
+          <div class="label">定时器实体 (可选)</div>
+          <ha-entity-picker
+            .hass=${this.hass}
+            .value=${this.config.timer || ''}
+            .includeDomains=${['timer']}
+            @value-changed=${this._valueChanged}
+            .configValue=${'timer'}
+          ></ha-entity-picker>
+        </div>
+
+        <!-- 主题选择 -->
+        <div class="row">
+          <div class="label">主题模式</div>
+          <ha-switch
+            .checked=${this.config.theme === 'on'}
+            @change=${this._themeSwitchChanged}
+            .configValue=${'theme'}
+          ></ha-switch>
+          <span style="margin-left: 8px">
+            ${this.config.theme === 'on' ? '亮色(on)' : '暗色(off)'}
+          </span>
+        </div>
+
+        <!-- 附加按钮 -->
+        <div class="row">
+          <div class="label">附加按钮 (最多7个)</div>
+          ${(this.config.buttons || []).map((button, index) => html`
+            <ha-entity-picker
+              .hass=${this.hass}
+              .value=${button}
+              @value-changed=${(ev) => this._buttonChanged(ev, index)}
+              .configValue=${'buttons'}
+              allow-custom-entity
+            ></ha-entity-picker>
+          `)}
+          ${(!this.config.buttons || this.config.buttons.length < 7) ? html`
+            <div class="buttons-row">
+              <mwc-button 
+                class="add-button" 
+                @click=${this._addButton}
+                outlined
+              >
+                添加按钮
+              </mwc-button>
+            </div>
+          ` : ''}
+        </div>
+
+        <!-- 自动隐藏选项 -->
+        <div class="row">
+          <ha-switch
+            .checked=${!!this.config.auto_show}
+            @change=${this._autoShowChanged}
+          ></ha-switch>
+          <span style="margin-left: 8px">空调关闭时隐藏卡片</span>
+        </div>
+
+        <!-- 宽度设置 -->
+        <div class="row">
+          <div class="label">卡片宽度</div>
+          <ha-textfield
+            .label="宽度 (例如: 100%, 300px)"
+            .value=${this.config.width || '100%'}
+            @input=${this._widthChanged}
+          ></ha-textfield>
+        </div>
+      </div>
+    `;
+  }
+
+	_valueChanged(ev) {
+		if (!this.config) return;  // 移除了 !ev.detail.value 检查，允许空值
+		const configValue = ev.target.configValue;
+		const value = ev.detail.value;
+		
+		// 如果值为空，则删除该配置项
+		if (!value) {
+			const newConfig = { ...this.config };
+			delete newConfig[configValue];
+			this.config = newConfig;
+		} else {
+			this.config = { 
+				...this.config,
+				[configValue]: value 
+			};
+		}
+		this._fireEvent();
+	}
+
+	_buttonChanged(ev, index) {
+		if (!this.config) return;  // 移除了 !ev.detail.value 检查，允许空值
+		const buttons = [...(this.config.buttons || [])];
+		
+		// 如果值为空，则删除该按钮
+		if (!ev.detail.value) {
+			buttons.splice(index, 1);
+		} else {
+			buttons[index] = ev.detail.value;
+		}
+		
+		this.config = { 
+			...this.config,
+			buttons: buttons.length > 0 ? buttons : undefined  // 如果按钮数组为空，则不保留空数组
+		};
+		this._fireEvent();
+	}
+
+	_addButton() {
+		const buttons = [...(this.config.buttons || [])];
+		if (buttons.length >= 7) return;
+		buttons.push('');
+		
+		this.config = { 
+			...this.config,
+			buttons 
+		};
+		this._fireEvent();
+	}
+
+  _removeButton(index) {
+    const buttons = [...(this.config.buttons || [])];
+    buttons.splice(index, 1);
+    
+    this.config = { 
+      ...this.config,
+      buttons 
+    };
+    this._fireEvent();
+  }
+
+  _themeSwitchChanged(ev) {
+    if (!this.config) return;
+    const theme = ev.target.checked ? 'on' : 'off';
+    
+    this.config = { 
+      ...this.config,
+      theme 
+    };
+    this._fireEvent();
+  }
+
+  _autoShowChanged(ev) {
+    if (!this.config) return;
+    const auto_show = ev.target.checked;
+    
+    this.config = { 
+      ...this.config,
+      auto_show 
+    };
+    this._fireEvent();
+  }
+
+  _widthChanged(ev) {
+    if (!this.config) return;
+    const width = ev.target.value;
+    
+    this.config = { 
+      ...this.config,
+      width 
+    };
+    this._fireEvent();
+  }
+
+  _fireEvent() {
+    this.dispatchEvent(new CustomEvent('config-changed', {
+      detail: { config: this.config }
+    }));
+  }
+}
+customElements.define('xiaoshi-climate-card-editor', XiaoshiClimateCardEditor);
+
+export class XiaoshiClimateCard extends LitElement {
+  static get properties() { 
     return {
       hass: { type: Object },
       width: { type: String, attribute: true },
@@ -13,7 +275,22 @@ export class XiaoshiClimateCard extends LitElement {
       _externalTempSensor: { type: String } 
     };
   }
-  
+  static getConfigElement() {
+    return document.createElement("xiaoshi-climate-card-editor");
+  }
+
+  static getStubConfig() {
+    return {
+      entity: "",
+      temperature: "",
+      timer: "",
+      theme: "on",
+      buttons: [],
+      auto_show: false,
+      width: "100%"
+    };
+  }
+
   setConfig(config) {
     this.config = config;
     this.buttons = config.buttons || [];
@@ -439,7 +716,7 @@ export class XiaoshiClimateCard extends LitElement {
   }  
 
     updated(changedProperties) {
-        if (changedProperties.has('hass') || changedProperties.has('config')) {
+        if (changedProperties.has('config')) {
            this._fetchDataAndRenderChart();
         }
     }
@@ -566,7 +843,7 @@ export class XiaoshiClimateCard extends LitElement {
     const state = entity?.state || 'off';
 		const theme = this._evaluateTheme(); 
 		let statusColor = theme === 'on' ? 'rgba(50, 50, 50, 0.3)' : 'rgba(220, 220, 220, 0.3)';
-    if (state === 'cool') statusColor = 'rgb(33,150,243)';
+    if (state === 'cool') statusColor = 'rgb(43,160,243)';
     else if (state === 'heat') statusColor = 'rgb(254,111,33)';
     else if (state === 'dry') statusColor = 'rgb(255,151,0)';
     else if (state === 'fan' || state === 'fan_only') statusColor = 'rgb(0,188,213)';
@@ -596,7 +873,7 @@ export class XiaoshiClimateCard extends LitElement {
           opacityTo: 0.2,
           stops: [0, 100],
           colorStops: [
-            { offset: 0, color: statusColor, opacity: 0.6 },
+            { offset: 0, color: statusColor, opacity: 0.8 },
             { offset: 100, color: statusColor, opacity: 0.2 }
           ]
         }
@@ -725,8 +1002,9 @@ export class XiaoshiClimateCard extends LitElement {
                                 --button-fg: ${buttonFg}; 
                                 --active-color: ${statusColor};
                                 grid-template-rows: ${gridTemplateRows}">
-        <div id="chart-container"></div>
+																
         ${isOn ? html`<div class="active-gradient"></div>` : ''}
+        <div id="chart-container"></div>
         <div class="content-container">
             <div class="name-area">${attrs.friendly_name}</div>
                 <div class="status-area" style="color: ${fgColor}">${translatedState}：
@@ -1311,5 +1589,5 @@ _renderExtraButtons() {
       this.hass.callService(domain, service, data);
       this._handleClick();
   }
-}
+} 
 customElements.define('xiaoshi-climate-card', XiaoshiClimateCard);
