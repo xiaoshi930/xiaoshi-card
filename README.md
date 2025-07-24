@@ -281,6 +281,7 @@ type: xiaoshi-lunar-right6
 ~~~
 type: custom:xiaoshi-climate-card
 entity: climate.kongtiao_keting
+temperature: sensor.woshi_wendu              ## 额外温度实体，覆盖空调当前温度，用于空调实体没有【当前温度】情况
 timer: timer.ke_ting_kong_diao_ding_shi_qi   ## 辅助元素：定时器实体
 theme: on                                    ## 可选on、off、或者函数返回值如'[[[ return theme() ]]]'
 auto_show: true                              ## 当有此选项时，空调关闭时，卡片隐藏
