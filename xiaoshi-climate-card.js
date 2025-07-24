@@ -459,43 +459,45 @@ export class XiaoshiClimateCard extends LitElement {
       const now = new Date();
       const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
       
-      // 获取历史数据
-      const entityId = this._externalTempSensor || this.config.entity;
-      const result = await this.hass.callWS({
-        type: 'history/history_during_period',
-        start_time: yesterday.toISOString(),
-        end_time: now.toISOString(),
-        entity_ids: [entityId],
-        significant_changes_only: false,
-        minimal_response: false,
-        no_attributes: false
-      });
+			try {
+				const entityId = this._externalTempSensor || this.config.entity;
+				const result = await this.hass.callWS({
+					type: 'history/history_during_period',
+					start_time: yesterday.toISOString(),
+					end_time: now.toISOString(),
+					entity_ids: [entityId],
+					significant_changes_only: true,
+					minimal_response: true,
+					no_attributes: false
+				});
 
-        if (!result?.[entityId]?.length) {
-          return;
-        }
+					if (!result?.[entityId]?.length) {
+						return;
+					}
 
-    const rawData = result[entityId]
-      .filter(entry => {
-        // 根据实体类型处理不同数据
-        if (entityId.startsWith('sensor.')) {
-          return !isNaN(parseFloat(entry.s));
-        } else {
-          return entry.a && !isNaN(parseFloat(entry.a.current_temperature));
-        }
-      })
-      .map(entry => ({
-        timestamp: entry.lu * 1000,
-        temperature: entityId.startsWith('sensor.') ? 
-          parseFloat(entry.s) : 
-          parseFloat(entry.a.current_temperature)
-      }))
-      .sort((a, b) => a.timestamp - b.timestamp);
+			const rawData = result[entityId]
+				.filter(entry => {
+					if (entityId.startsWith('sensor.')) {
+						return !isNaN(parseFloat(entry.s));
+					} else {
+						return entry.a && !isNaN(parseFloat(entry.a.current_temperature));
+					}
+				})
+				.map(entry => ({
+					timestamp: entry.lu * 1000,
+					temperature: entityId.startsWith('sensor.') ? 
+						parseFloat(entry.s) : 
+						parseFloat(entry.a.current_temperature)
+				}))
+				.sort((a, b) => a.timestamp - b.timestamp);
 
-      // 10分钟平均数据处理
-      const averagedData = this._calculate10MinuteAverages(rawData);
-
-      this._renderChart(averagedData);
+				if (rawData.length > 0) {
+					const averagedData = this._calculate10MinuteAverages(rawData);
+					this._renderChart(averagedData);
+				}
+			} catch (error) {
+				console.error('获取图表数据失败:', error);
+		}
   }
 
   _calculate10MinuteAverages(data) {
@@ -508,27 +510,26 @@ export class XiaoshiClimateCard extends LitElement {
     let currentWindowValues = [];
     
     for (const point of data) {
+			if (isNaN(point.temperature)) continue;
       if (point.timestamp < currentWindowEnd) {
         currentWindowValues.push(point.temperature);
       } else {
-        // 计算当前窗口的平均值
+
         if (currentWindowValues.length > 0) {
           const sum = currentWindowValues.reduce((a, b) => a + b, 0);
           const avg = sum / currentWindowValues.length;
           averagedData.push([
-            currentWindowStart + TEN_MINUTES / 2, // 使用窗口中点作为时间戳
-            parseFloat(avg.toFixed(1)) // 保留1位小数
+            currentWindowStart + TEN_MINUTES / 2,
+            parseFloat(avg.toFixed(1)) 
           ]);
         }
         
-        // 移动到下一个窗口
         currentWindowStart = currentWindowEnd;
         currentWindowEnd = currentWindowStart + TEN_MINUTES;
         currentWindowValues = [point.temperature];
       }
     }
-    
-    // 处理最后一个窗口
+
     if (currentWindowValues.length > 0) {
       const sum = currentWindowValues.reduce((a, b) => a + b, 0);
       const avg = sum / currentWindowValues.length;
@@ -542,27 +543,36 @@ export class XiaoshiClimateCard extends LitElement {
   }
 
   _renderChart(data) {
-    const container = this.shadowRoot.getElementById('chart-container');
+    const container = this.renderRoot.querySelector('#chart-container');
     if (!container) return;
-    
+    if (!data) {
+      if (this._chart) {
+        this._chart.destroy();
+        this._chart = null;
+      }
+      return;
+    }
     container.innerHTML = '';
-    
     if (this._chart) {
       this._chart.destroy();
+      this._chart = null;
     }
-    
-    
+    this._chart = new ApexCharts(container, this._getChartConfig(data));
+    this._chart.render();
+  }
+
+	_getChartConfig(data) {
     const entity = this.hass.states[this.config.entity];
     const state = entity?.state || 'off';
-    let statusColor = 'rgb(238,99,99)';
+		const theme = this._evaluateTheme(); 
+		let statusColor = theme === 'on' ? 'rgba(50, 50, 50, 0.3)' : 'rgba(220, 220, 220, 0.3)';
     if (state === 'cool') statusColor = 'rgb(33,150,243)';
     else if (state === 'heat') statusColor = 'rgb(254,111,33)';
     else if (state === 'dry') statusColor = 'rgb(255,151,0)';
     else if (state === 'fan' || state === 'fan_only') statusColor = 'rgb(0,188,213)';
     else if (state === 'auto') statusColor = 'rgb(238,130,238)'
-    
-    this._chart = new ApexCharts(container, {
-      series: [{
+    return {
+			series: [{
         data: data
       }],
       chart: {
@@ -571,8 +581,8 @@ export class XiaoshiClimateCard extends LitElement {
         width: '100%',
         sparkline: { enabled: true },
         animations: { enabled: false },
-        toolbar: { show: false }
-      },
+        toolbar: { show: false },
+				redrawOnParentResize: true},
       colors: [statusColor],
       stroke: {
         width: 1,
@@ -587,7 +597,7 @@ export class XiaoshiClimateCard extends LitElement {
           stops: [0, 100],
           colorStops: [
             { offset: 0, color: statusColor, opacity: 0.6 },
-            { offset: 100, color: statusColor, opacity: 0.3 }
+            { offset: 100, color: statusColor, opacity: 0.2 }
           ]
         }
       },
@@ -606,10 +616,8 @@ export class XiaoshiClimateCard extends LitElement {
       dataLabels: { enabled: false },
       legend: { show: false },
       markers: { size: 0 }
-    });
-
-    this._chart.render();
-  }
+    }
+	}
 
   disconnectedCallback() {
     if (this._chart) {
@@ -655,7 +663,7 @@ export class XiaoshiClimateCard extends LitElement {
     const buttonBg = theme === 'on' ? 'rgb(50,50,50)' : 'rgb(120,120,120)';
     const buttonFg = 'rgb(250,250,250)';
 
-    let statusColor = 'rgb(238,99,99)';
+    let statusColor = 'rgb(250,250,250)';
     if (state === 'cool') statusColor = 'rgb(33,150,243)';
     else if (state === 'heat') statusColor = 'rgb(254,111,33)';
     else if (state === 'dry') statusColor = 'rgb(255,151,0)';
@@ -815,7 +823,7 @@ export class XiaoshiClimateCard extends LitElement {
     const climateEntity = this.hass.states[this.config.entity];
     const climateState = climateEntity ? climateEntity.state : 'off';
     
-    let activeColor = 'rgb(238,99,99)';
+    let activeColor = 'rgb(255,255,255)';
     if (climateState === 'cool') activeColor = 'rgb(33,150,243)';
     else if (climateState === 'heat') activeColor = 'rgb(254,111,33)';
     else if (climateState === 'dry') activeColor = 'rgb(255,151,0)';
@@ -952,11 +960,10 @@ _renderExtraButtons() {
         return html`<div>实体未找到: ${this.config.entity}</div>`;
     }
     
-    const state = entity.state;
-    const isOn = state !== 'off';
+    const state = entity?.state || 'off';
     const theme = this._evaluateTheme();
     const fgColor = theme === 'on' ? 'rgb(0, 0, 0)' : 'rgb(255, 255, 255)';
-    let activeColor = 'rgb(238,99,99)';
+    let activeColor = theme === 'on' ? 'rgba(00, 80, 80)' : 'rgba(180, 230, 230)';
     if (state === 'cool') activeColor = 'rgb(33,150,243)';
     else if (state === 'heat') activeColor = 'rgb(254,111,33)';
     else if (state === 'dry') activeColor = 'rgb(255,151,0)';
