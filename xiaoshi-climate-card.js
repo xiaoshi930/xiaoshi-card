@@ -854,7 +854,7 @@ export class XiaoshiClimateCard extends LitElement {
       }],
       chart: {
         type: 'area',
-        height: '30%',
+        height: '20%',
         width: '100%',
         sparkline: { enabled: true },
         animations: { enabled: false },
@@ -873,7 +873,7 @@ export class XiaoshiClimateCard extends LitElement {
           opacityTo: 0.2,
           stops: [0, 100],
           colorStops: [
-            { offset: 0, color: statusColor, opacity: 0.8 },
+            { offset: 0, color: statusColor, opacity: 0.6 },
             { offset: 100, color: statusColor, opacity: 0.2 }
           ]
         }
