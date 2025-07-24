@@ -716,7 +716,7 @@ export class XiaoshiClimateCard extends LitElement {
   }  
 
     updated(changedProperties) {
-        if (changedProperties.has('config')) {
+        if (changedProperties.has('hass') || changedProperties.has('config')) {
            this._fetchDataAndRenderChart();
         }
     }
