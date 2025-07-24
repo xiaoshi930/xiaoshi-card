@@ -10,12 +10,7 @@ export class XiaoshiComputerCard extends LitElement {
           auto_show: { type: Boolean }
       };
   }
-  
-  setConfig(config) {
-      this.config = config;
-      this.auto_show = config.auto_show || false;
-      if (config.width !== undefined) this.width = config.width;
-  }
+
   
   static get styles() { 
       return css`
@@ -38,7 +33,7 @@ export class XiaoshiComputerCard extends LitElement {
               grid-template-columns: 20% 65% 13%;
               grid-template-rows: auto auto 4px;
           }
-
+          
           .active-gradient {
               position: absolute;
               top: 0;
@@ -46,28 +41,31 @@ export class XiaoshiComputerCard extends LitElement {
               width: 100%;
               height: 100%;
               background: linear-gradient(90deg, var(--active-color), transparent 50%);
-              opacity: 0.5;
+              opacity: 0.8;
               z-index: 0;
           }
 
-          .wave-container {
-              position: absolute;
-              top: 0;
-              left: 0;
-              width: 100%;
-              height: 100%;
-              overflow: hidden;
-              z-index: 0;
-              pointer-events: none;
+          #cpu-chart-container {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: auto;
+            overflow: hidden;
+            z-index: 0;
+            pointer-events: none;
           }
           
-          .wave-canvas {
-                  position: absolute;
-                  bottom: 0;
-                  left: 0;
-                  width: 100%;
-                  height: 40%;
-                  z-index: 0;
+          #memory-chart-container {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: auto;
+            overflow: hidden;
+            z-index: 0;
+            pointer-events: none;
+            opacity: 0.7;
           }
 
           .name-area {
@@ -212,16 +210,20 @@ export class XiaoshiComputerCard extends LitElement {
           }
       `;
   }
+  
+  setConfig(config) {
+      this.config = config;
+      this.auto_show = config.auto_show || false;
+      if (config.width !== undefined) this.width = config.width;
+  }
 
+  
   constructor() {
       super();
       this.hass = {};
       this.config = {};
       this.theme = 'on';
       this.width = '100%';
-      this._waveAnimationFrame = null;
-      this._wavePhase = 0;
-      this._waveHeightRatio = 0.3; 
   }
 
    _handleClick() {
@@ -244,88 +246,127 @@ export class XiaoshiComputerCard extends LitElement {
           return 'on';
       }
   }
-
-  updated(changedProperties) {
-      if (changedProperties.has('hass') || changedProperties.has('config')) {
-          const entity = this.hass?.states[this.config?.entity];
-          const isOn = entity?.state !== 'off';
-          
-          if (isOn) {
-              this._startWaveAnimation();
-          } else {
-              this._stopWaveAnimation();
-          }
-      }
+  
+  async firstUpdated() {
+    await this._loadApexCharts();
+    this._fetchDataAndRenderChart();
+  }
+  
+  async _loadApexCharts() {
+    if (!window.ApexCharts) {
+      await new Promise((resolve) => {
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/apexcharts';
+        script.onload = resolve;
+        document.head.appendChild(script);
+      });
+    }
   }
 
-  _startWaveAnimation() {
-          if (!this._waveAnimationFrame) {
-                  this._animateWave();
-          }
-  }
+  async _fetchDataAndRenderChart() {
+      const now = new Date();
+      const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
-  _stopWaveAnimation() {
-          if (this._waveAnimationFrame) {
-                  cancelAnimationFrame(this._waveAnimationFrame);
-                  this._waveAnimationFrame = null;
-          }
-  }
-
-  _animateWave() {
-      const container = this.shadowRoot?.querySelector('.wave-container');
-      if (!container) {
-          this._waveAnimationFrame = requestAnimationFrame(() => this._animateWave());
-          return;
-      }
-
-      let canvas = container.querySelector('canvas');
-      if (!canvas) {
-          canvas = document.createElement('canvas');
-          canvas.className = 'wave-canvas';
-          container.appendChild(canvas);
-      }
-
-      const ctx = canvas.getContext('2d');
-      const width = canvas.width = container.offsetWidth;
-      const height = canvas.height = container.offsetHeight * 0.8;
+      const entityIds = [];
+      if (this.config.cpu) entityIds.push(this.config.cpu);
+      if (this.config.memory) entityIds.push(this.config.memory);
       
-      this._wavePhase += 0.02;
+      const result = await this.hass.callWS({
+        type: 'history/history_during_period',
+        start_time: yesterday.toISOString(),
+        end_time: now.toISOString(),
+        entity_ids: entityIds,
+        significant_changes_only: false,
+        minimal_response: true,
+        no_attributes: true
+      });
 
-      ctx.clearRect(0, 0, width, height);
-
-      const drawWave = (offset, heightRatio, color) => {
-          ctx.beginPath();
-          ctx.moveTo(0, height);
-          
-          for (let x = 0; x <= width; x++) {
-              const y = (
-                  Math.sin(x * 0.01 + this._wavePhase + offset) * 15 + 
-                  Math.sin(x * 0.02 + this._wavePhase * 1.3 + offset) * 8 +
-                  Math.sin(x * 0.005 + this._wavePhase * 0.7 + offset) * 5
-              ) * heightRatio + (height - 30);
-              
-              ctx.lineTo(x, y);
-          }
-          
-          ctx.lineTo(width, height);
-          ctx.lineTo(0, height);
-          
-          const gradient = ctx.createLinearGradient(0, height - 50, 0, height);
-          gradient.addColorStop(1, color);
-          gradient.addColorStop(0, color);
-          
-          ctx.fillStyle = gradient;
-          ctx.fill();
-      };
-      
-      let mainColor = '#2196f3';
-
-      drawWave(0, 1, `${mainColor}40`); 
-      drawWave(Math.PI/2, 0.8, `${mainColor}30`);
-      drawWave(Math.PI, 0.6, `${mainColor}20`);
-      this._waveAnimationFrame = requestAnimationFrame(() => this._animateWave());
+      if (this.config.cpu && result?.[this.config.cpu]?.length) {
+        const cpuData = result[this.config.cpu]
+          .filter(entry => !isNaN(parseFloat(entry.s)))
+          .map(entry => [entry.lu * 1000, parseFloat(entry.s)])
+          .sort((a, b) => a[0] - b[0]);
+        this._renderChart(cpuData, 'cpu-chart-container', '#00C5CD');
+      }
+      if (this.config.memory && result?.[this.config.memory]?.length) {
+        const memoryData = result[this.config.memory]
+          .filter(entry => !isNaN(parseFloat(entry.s)))
+          .map(entry => [entry.lu * 1000, parseFloat(entry.s)])
+          .sort((a, b) => a[0] - b[0]);
+        this._renderChart(memoryData, 'memory-chart-container', '#9C27B0');
+      }
   }
 
+  _renderChart(data, containerId, color) {
+    const container = this.shadowRoot.getElementById(containerId);
+    if (!container) return;
+    
+    container.innerHTML = '';
+    
+    if (this[`_${containerId}_chart`]) {
+      this[`_${containerId}_chart`].destroy();
+    }
+
+    this[`_${containerId}_chart`] = new ApexCharts(container, {
+      series: [{
+        data: data
+      }],
+      chart: {
+        type: 'area',
+        height: '50%',
+        width: '100%',
+        sparkline: { enabled: true },
+        animations: { enabled: false },
+        toolbar: { show: false }
+      },
+      colors: [color],
+      stroke: {
+        width: 1,
+        curve: 'smooth'
+      },
+      fill: {
+        type: 'gradient',
+        gradient: {
+          shadeIntensity: 0.5,
+          opacityFrom: 0.6,
+          opacityTo: 0.2,
+          stops: [0, 100],
+          colorStops: [
+            { offset: 0, color: color, opacity: 0.6 },
+            { offset: 100, color: color, opacity: 0.3 }
+          ]
+        }
+      },
+      xaxis: {
+        labels: { show: false },
+        axisBorder: { show: false },
+        axisTicks: { show: false },
+        tooltip: { enabled: false }
+      },
+      yaxis: {
+        show: false,
+        min: Math.min(...data.map(d => d[1]))
+      },
+      grid: { show: false },
+      tooltip: { enabled: false},
+      dataLabels: { enabled: false },
+      legend: { show: false },
+      markers: { size: 0 }
+    });
+
+    this[`_${containerId}_chart`].render();
+  }
+  
+  disconnectedCallback() {
+    if (this._cpu_chart) {
+      this._cpu_chart.destroy();
+    }
+    if (this._memory_chart) {
+      this._memory_chart.destroy();
+    }
+    super.disconnectedCallback();
+  }
+  
   _getRingColor(value) {
       if (value === undefined || isNaN(value)) return '#aaaaaa';
       const hue = (100 - value) * 1.2;
@@ -436,7 +477,8 @@ export class XiaoshiComputerCard extends LitElement {
                                                   grid-template-rows: "auto auto">
               
               <div class="active-gradient"></div>
-              <div class="wave-container"></div>
+              <div id="cpu-chart-container"></div>
+              <div id="memory-chart-container"></div>
               
               <div class="content-container">
                   <div class="name-area">${entity.attributes.friendly_name}</div>
