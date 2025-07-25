@@ -719,58 +719,161 @@ export class XiaoshiClimateCard extends LitElement {
     }
   }
 
-  async  firstUpdated() {
-    await this._fetchDataAndRenderChart();
-    await this.initCanvas();
-    this.drawSmoothCurve();
+  async firstUpdated() {
+      await this._fetchDataAndRenderChart();
   }
   
-    async updated(changedProperties) {
+  async updated(changedProperties) {
       if (changedProperties.has('hass') || changedProperties.has('config')) {
-        //await this._fetchDataAndRenderChart();
-        await this.initCanvas();
-        this.drawSmoothCurve();
+          await this._fetchDataAndRenderChart();
       }
-    }
+  }
 
-  async _fetchDataAndRenderChart() {
-      if (!this.hass) return;
-      try {
-          const now = new Date();
-          const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-          const entityId = this._externalTempSensor || this.config.entity;
-          if (!entityId) { return; }
-          const result = await this.hass.callWS({
-              type: 'history/history_during_period',
-              start_time: yesterday.toISOString(),
-              end_time: now.toISOString(),
-              entity_ids: [entityId],
-              significant_changes_only: true,
-              minimal_response: true,
-              no_attributes: false
-          });
-          if (!result?.[entityId]?.length) {return;}
-          const isSensor = entityId.startsWith('sensor.');
-          const rawData = result[entityId]
-              .map(entry => {
-                  const value = isSensor ? entry.s : entry.a?.current_temperature;
-                  return parseFloat(value);
-              })
-              .filter(value => !isNaN(value));
-          if (rawData.length === 0) return;
-          const sampleInterval = Math.max(1, Math.floor(rawData.length / 50));
-          const sampledData = [];
-          for (let i = 0; i < rawData.length; i += sampleInterval) {
-              const end = Math.min(i + sampleInterval, rawData.length);
-              const slice = rawData.slice(i, end);
-              const avg = slice.reduce((sum, val) => sum + val, 0) / slice.length;
-              sampledData.push(avg);
-          }
-          this.temperatureData = this._gaussianSmooth(sampledData, 3);
-      } catch (error) {
-          console.error('获取温度数据失败:', error);
-      }
+async _fetchDataAndRenderChart() {
+    if (!this.hass) return;
+
+    const now = new Date();
+    const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const entityId = this._externalTempSensor || this.config.entity;
+    if (!entityId) return;
+
+    const result = await this.hass.callWS({
+        type: 'history/history_during_period',
+        start_time: yesterday.toISOString(),
+        end_time: now.toISOString(),
+        entity_ids: [entityId],
+        significant_changes_only: true,
+        minimal_response: true,
+        no_attributes: false
+    });
+
+    if (!result?.[entityId]?.length) return;
+    
+    const isSensor = entityId.startsWith('sensor.');
+    const rawData = result[entityId]
+        .map(entry => {
+            const value = isSensor ? entry.s : entry.a?.current_temperature;
+            return parseFloat(value);
+        })
+        .filter(value => !isNaN(value));
+    
+    if (rawData.length === 0) return;
+    
+    const sampleInterval = Math.max(1, Math.floor(rawData.length / 50));
+    const sampledData = [];
+    for (let i = 0; i < rawData.length; i += sampleInterval) {
+        const end = Math.min(i + sampleInterval, rawData.length);
+        const slice = rawData.slice(i, end);
+        const avg = slice.reduce((sum, val) => sum + val, 0) / slice.length;
+        sampledData.push(avg);
     }
+    
+    this.temperatureData = this._gaussianSmooth(sampledData, 3);
+    await this.initCanvas();
+    this.drawSmoothCurve();
+}
+
+async initCanvas() {
+    const container = this.shadowRoot.querySelector('#chart-container');
+    if (!container) return;
+    
+    // 清除现有画布
+    while (container.firstChild) {
+        container.removeChild(container.firstChild);
+    }
+    
+    // 创建新画布
+    this.canvas = document.createElement('canvas');
+    this.canvas.className = 'temperature-chart';
+    container.appendChild(this.canvas);
+    
+    // 设置画布尺寸（正确处理高DPI）
+    const scale = window.devicePixelRatio || 1;
+    const width = container.clientWidth;
+    const height = container.clientHeight;
+    
+    // 设置CSS尺寸（显示尺寸）
+    this.canvas.style.width = `${width}px`;
+    this.canvas.style.height = `${height}px`;
+    
+    // 设置绘图表面尺寸（实际像素）
+    this.canvas.width = Math.floor(width * scale);
+    this.canvas.height = Math.floor(height * scale);
+    
+    // 获取上下文并设置缩放
+    this.ctx = this.canvas.getContext('2d');
+    this.ctx.scale(scale, scale);
+    
+    // 确保DOM更新完成
+    await this.updateComplete;
+}
+
+drawSmoothCurve() {
+    if (!this.ctx || !this.temperatureData || this.temperatureData.length === 0) return;
+    
+    const entity = this.hass.states[this.config.entity];
+    const state = entity?.state || 'off';
+    const theme = this._evaluateTheme();
+    
+    // 确定颜色
+    let statusColor = theme === 'on' ? '#888888' : '#aaaaaa';
+    if (state === 'cool') statusColor = '#2ba0f3';
+    else if (state === 'heat') statusColor = '#fe6f21';
+    else if (state === 'dry') statusColor = '#ff9700';
+    else if (state === 'fan' || state === 'fan_only') statusColor = '#00bcd5';
+    else if (state === 'auto') statusColor = '#ee82ee';
+    
+    // 获取画布尺寸（CSS像素）
+    const canvas = this.canvas;
+    const ctx = this.ctx;
+    const scale = window.devicePixelRatio || 1;
+    const width = canvas.width / scale;
+    const height = canvas.height / scale;
+    
+    // 清除画布（使用物理像素尺寸）
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // 计算温度范围
+    const minTemp = Math.min(...this.temperatureData) - 1;
+    const maxTemp = Math.max(...this.temperatureData);
+    const tempRange = Math.max(maxTemp - minTemp, 0.1);
+    const xStep = width / (this.temperatureData.length - 1);
+    
+    // 创建点集
+    const points = this.temperatureData.map((temp, i) => {
+        return {
+            x: i * xStep,
+            y: height - ((temp - minTemp) / tempRange) * height,
+            value: temp
+        };
+    });
+    
+    // 绘制填充区域
+    ctx.beginPath();
+    this.drawMonotonicSpline(ctx, points);
+    ctx.lineTo(points[points.length-1].x, height);
+    ctx.lineTo(points[0].x, height);
+    ctx.closePath();
+    
+    // 创建渐变填充
+    const gradient = ctx.createLinearGradient(0, 0, 0, height);
+    gradient.addColorStop(0, `${statusColor}60`);
+    gradient.addColorStop(1, `${statusColor}20`);
+    ctx.fillStyle = gradient;
+    ctx.fill();
+    
+    // 绘制曲线
+    ctx.beginPath();
+    this.drawMonotonicSpline(ctx, points);
+    ctx.strokeStyle = statusColor;
+    ctx.lineWidth = 1; // 线宽不需要乘以scale，因为上下文已经缩放
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 5;
+    ctx.shadowOffsetY = 2;
+    ctx.stroke();
+}
     
     _gaussianSmooth(data, windowSize = 5) {
         if (!data || data.length === 0) return [];
@@ -817,73 +920,7 @@ export class XiaoshiClimateCard extends LitElement {
       return normalized;
   }
 
-  async initCanvas() {
-      const container = this.shadowRoot.querySelector('#chart-container');
-      if (!container) return;
-      while (container.firstChild) {
-        container.removeChild(container.firstChild);
-      }
-    this.canvas = document.createElement('canvas');
-    container.appendChild(this.canvas);
-    this.ctx = this.canvas.getContext('2d');
-    const scale = window.devicePixelRatio || 1;
-    await this.updateComplete;
-    const width = container.clientWidth;
-    const height = container.clientHeight;
-    this.canvas.width = width * scale;
-    this.canvas.height = height * scale;
-    this.ctx.scale(scale, scale);
-  }
 
-  drawSmoothCurve() {
-    const entity = this.hass.states[this.config.entity];
-    const state = entity?.state || 'off';
-	const theme = this._evaluateTheme(); 
-    let statusColor = theme === 'on' ? '#323232' : '#dcdcdc';
-    if (state === 'cool') statusColor = '#2ba0f3';
-    else if (state === 'heat') statusColor = '#fe6f21';
-    else if (state === 'dry') statusColor = '#ff9700';
-    else if (state === 'fan' || state === 'fan_only') statusColor = '#00bcd5';
-    else if (state === 'auto') statusColor = '#ee82ee';
-      
-    if (!this.ctx || !this.temperatureData || this.temperatureData.length === 0) return;
-    const canvas = this.canvas;
-    const ctx = this.ctx;
-    const width = canvas.width / (window.devicePixelRatio || 1);
-    const height = canvas.height / (window.devicePixelRatio || 1);
-    ctx.clearRect(0, 0, width, height);
-    const minTemp = Math.min(...this.temperatureData)-1;
-    const maxTemp = Math.max(...this.temperatureData);
-    const tempRange = Math.max(maxTemp - minTemp, 0.1);
-    const xStep = width / (this.temperatureData.length - 1);
-    const points = this.temperatureData.map((temp, i) => {
-      return {
-        x: i * xStep,
-        y: height - ((temp - minTemp) / tempRange) * height,
-        value: temp 
-      };
-    });
-    ctx.beginPath();
-    this.drawMonotonicSpline(ctx, points);
-    ctx.lineTo(points[points.length-1].x, height);
-    ctx.lineTo(points[0].x, height);
-    ctx.closePath();
-    const gradient = ctx.createLinearGradient(0, 0, 0, height);
-    gradient.addColorStop(0, statusColor+'60');
-    gradient.addColorStop(1, statusColor+'20');
-    ctx.fillStyle = gradient;
-    ctx.fill();
-    ctx.beginPath();
-    this.drawMonotonicSpline(ctx, points);
-    ctx.strokeStyle = statusColor;
-    ctx.lineWidth = 1;
-    ctx.lineJoin = 'round';
-    ctx.lineCap = 'round';
-    ctx.shadowColor = 'transparent';
-    ctx.shadowBlur = 5;
-    ctx.shadowOffsetY = 2;
-    ctx.stroke();
-  }
 
   drawMonotonicSpline(ctx, points) {
     if (points.length < 2) return;
