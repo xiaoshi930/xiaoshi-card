@@ -1,4 +1,4 @@
-console.info("%c 消逝集合卡 \n%c   v 2.9.5 ", "color: red; font-weight: bold; background: black", "color: white; font-weight: bold; background: dimgray");
+console.info("%c 消逝集合卡 \n%c   v 2.9.6 ", "color: red; font-weight: bold; background: black", "color: white; font-weight: bold; background: dimgray");
 
 import { cardConfigs } from './xiaoshi-config.js';
 
