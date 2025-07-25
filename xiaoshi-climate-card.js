@@ -272,6 +272,7 @@ export class XiaoshiClimateCard extends LitElement {
       theme: { type: String },
       _timerInterval: { state: true },
       auto_show: { type: Boolean },
+      temperatureData: { type: Array },
       _externalTempSensor: { type: String } 
     };
   }
@@ -297,10 +298,16 @@ export class XiaoshiClimateCard extends LitElement {
     this.auto_show = config.auto_show || false;
     this._externalTempSensor = config.temperature || null;
     if (config.width !== undefined) this.width = config.width;
+    this.requestUpdate();
   }
   
   static get styles() { 
     return css`
+      :host {
+        display: block;
+        contain: content;
+      }
+      
       .card {
         position: relative;
         border-radius: 12px;
@@ -341,7 +348,7 @@ export class XiaoshiClimateCard extends LitElement {
         bottom: 0;
         left: 0;
         width: 100%;
-        height: auto;
+        height: 20%;
         overflow: hidden;
         z-index: 0;
         pointer-events: none;
@@ -690,7 +697,9 @@ export class XiaoshiClimateCard extends LitElement {
     this.theme = 'on';
     this.width = '100%';
     this._timerInterval = null;
-    this._chart = null;
+    this.temperatureData = [];
+    this.canvas = null;
+    this.ctx = null;
   }
 
   _evaluateTheme() {
@@ -710,197 +719,213 @@ export class XiaoshiClimateCard extends LitElement {
     }
   }
 
-  async firstUpdated() {
-    await this._loadApexCharts();
-    this._fetchDataAndRenderChart();
-  }  
-
-    updated(changedProperties) {
-        if (changedProperties.has('hass') || changedProperties.has('config')) {
-           this._fetchDataAndRenderChart();
-        }
-    }
-
-  async _loadApexCharts() {
-    if (!window.ApexCharts) {
-      await new Promise((resolve) => {
-        const script = document.createElement('script');
-        script.src = 'https://cdn.jsdelivr.net/npm/apexcharts';
-        script.onload = resolve;
-        document.head.appendChild(script);
-      });
-    }
+  async  firstUpdated() {
+    await this._fetchDataAndRenderChart();
+    await this.initCanvas();
+    this.drawSmoothCurve();
   }
+  
+    async updated(changedProperties) {
+      if (changedProperties.has('hass') || changedProperties.has('config')) {
+        //await this._fetchDataAndRenderChart();
+        await this.initCanvas();
+        this.drawSmoothCurve();
+      }
+    }
 
   async _fetchDataAndRenderChart() {
-      const now = new Date();
-      const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-      
-			try {
-				const entityId = this._externalTempSensor || this.config.entity;
-				const result = await this.hass.callWS({
-					type: 'history/history_during_period',
-					start_time: yesterday.toISOString(),
-					end_time: now.toISOString(),
-					entity_ids: [entityId],
-					significant_changes_only: true,
-					minimal_response: true,
-					no_attributes: false
-				});
-
-					if (!result?.[entityId]?.length) {
-						return;
-					}
-
-			const rawData = result[entityId]
-				.filter(entry => {
-					if (entityId.startsWith('sensor.')) {
-						return !isNaN(parseFloat(entry.s));
-					} else {
-						return entry.a && !isNaN(parseFloat(entry.a.current_temperature));
-					}
-				})
-				.map(entry => ({
-					timestamp: entry.lu * 1000,
-					temperature: entityId.startsWith('sensor.') ? 
-						parseFloat(entry.s) : 
-						parseFloat(entry.a.current_temperature)
-				}))
-				.sort((a, b) => a.timestamp - b.timestamp);
-
-				if (rawData.length > 0) {
-					const averagedData = this._calculate10MinuteAverages(rawData);
-					this._renderChart(averagedData);
-				}
-			} catch (error) {
-				console.error('获取图表数据失败:', error);
-		}
-  }
-
-  _calculate10MinuteAverages(data) {
-    if (data.length === 0) return [];
+      if (!this.hass) return;
+      try {
+          const now = new Date();
+          const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+          const entityId = this._externalTempSensor || this.config.entity;
+          if (!entityId) { return; }
+          const result = await this.hass.callWS({
+              type: 'history/history_during_period',
+              start_time: yesterday.toISOString(),
+              end_time: now.toISOString(),
+              entity_ids: [entityId],
+              significant_changes_only: true,
+              minimal_response: true,
+              no_attributes: false
+          });
+          if (!result?.[entityId]?.length) {return;}
+          const isSensor = entityId.startsWith('sensor.');
+          const rawData = result[entityId]
+              .map(entry => {
+                  const value = isSensor ? entry.s : entry.a?.current_temperature;
+                  return parseFloat(value);
+              })
+              .filter(value => !isNaN(value));
+          if (rawData.length === 0) return;
+          const sampleInterval = Math.max(1, Math.floor(rawData.length / 50));
+          const sampledData = [];
+          for (let i = 0; i < rawData.length; i += sampleInterval) {
+              const end = Math.min(i + sampleInterval, rawData.length);
+              const slice = rawData.slice(i, end);
+              const avg = slice.reduce((sum, val) => sum + val, 0) / slice.length;
+              sampledData.push(avg);
+          }
+          this.temperatureData = this._gaussianSmooth(sampledData, 3);
+      } catch (error) {
+          console.error('获取温度数据失败:', error);
+      }
+    }
     
-    const TEN_MINUTES = 10 * 60 * 1000; // 10分钟毫秒数
-    const averagedData = [];
-    let currentWindowStart = data[0].timestamp;
-    let currentWindowEnd = currentWindowStart + TEN_MINUTES;
-    let currentWindowValues = [];
-    
-    for (const point of data) {
-			if (isNaN(point.temperature)) continue;
-      if (point.timestamp < currentWindowEnd) {
-        currentWindowValues.push(point.temperature);
-      } else {
-
-        if (currentWindowValues.length > 0) {
-          const sum = currentWindowValues.reduce((a, b) => a + b, 0);
-          const avg = sum / currentWindowValues.length;
-          averagedData.push([
-            currentWindowStart + TEN_MINUTES / 2,
-            parseFloat(avg.toFixed(1)) 
-          ]);
+    _gaussianSmooth(data, windowSize = 5) {
+        if (!data || data.length === 0) return [];
+        if (windowSize < 1) return [...data];
+        const kernel = this._createGaussianKernel(windowSize);
+        const halfWindow = Math.floor(windowSize / 2);
+        const result = new Array(data.length);
+        for (let i = 0; i < data.length; i++) {
+            let sum = 0;
+            let weightSum = 0;
+            const start = Math.max(0, i - halfWindow);
+            const end = Math.min(data.length - 1, i + halfWindow);
+            for (let j = start, k = start - (i - halfWindow); j <= end; j++, k++) {
+                const weight = kernel[k];
+                sum += data[j] * weight;
+                weightSum += weight;
+            }
+            result[i] = sum / weightSum;
         }
-        
-        currentWindowStart = currentWindowEnd;
-        currentWindowEnd = currentWindowStart + TEN_MINUTES;
-        currentWindowValues = [point.temperature];
-      }
-    }
-
-    if (currentWindowValues.length > 0) {
-      const sum = currentWindowValues.reduce((a, b) => a + b, 0);
-      const avg = sum / currentWindowValues.length;
-      averagedData.push([
-        currentWindowStart + TEN_MINUTES / 2,
-        parseFloat(avg.toFixed(1))
-      ]);
+        return result;
     }
     
-    return averagedData;
-  }
-
-  _renderChart(data) {
-    const container = this.renderRoot.querySelector('#chart-container');
-    if (!container) return;
-    if (!data) {
-      if (this._chart) {
-        this._chart.destroy();
-        this._chart = null;
+  _createGaussianKernel(size) {
+      if (!this._gaussianKernelCache) {
+          this._gaussianKernelCache = new Map();
       }
-      return;
-    }
-    container.innerHTML = '';
-    if (this._chart) {
-      this._chart.destroy();
-      this._chart = null;
-    }
-    this._chart = new ApexCharts(container, this._getChartConfig(data));
-    this._chart.render();
+      if (this._gaussianKernelCache.has(size)) {
+          return this._gaussianKernelCache.get(size);
+      }
+      const kernel = new Array(size);
+      const sigma = size / 3;
+      const center = Math.floor(size / 2);
+      let sum = 0;
+      for (let i = 0; i <= center; i++) {
+          const x = i - center;
+          const value = Math.exp(-(x * x) / (2 * sigma * sigma));
+          kernel[center + x] = value;
+          kernel[center - x] = value;
+          sum += (i === center - x) ? value : value * 2;
+      }
+  
+      const normalized = kernel.map(v => v / sum);
+      this._gaussianKernelCache.set(size, normalized);
+      return normalized;
   }
 
-	_getChartConfig(data) {
+  async initCanvas() {
+      const container = this.shadowRoot.querySelector('#chart-container');
+      if (!container) return;
+      while (container.firstChild) {
+        container.removeChild(container.firstChild);
+      }
+    this.canvas = document.createElement('canvas');
+    container.appendChild(this.canvas);
+    this.ctx = this.canvas.getContext('2d');
+    const scale = window.devicePixelRatio || 1;
+    await this.updateComplete;
+    const width = container.clientWidth;
+    const height = container.clientHeight;
+    this.canvas.width = width * scale;
+    this.canvas.height = height * scale;
+    this.ctx.scale(scale, scale);
+  }
+
+  drawSmoothCurve() {
     const entity = this.hass.states[this.config.entity];
     const state = entity?.state || 'off';
-		const theme = this._evaluateTheme(); 
-		let statusColor = theme === 'on' ? 'rgba(50, 50, 50, 0.3)' : 'rgba(220, 220, 220, 0.3)';
-    if (state === 'cool') statusColor = 'rgb(43,160,243)';
-    else if (state === 'heat') statusColor = 'rgb(254,111,33)';
-    else if (state === 'dry') statusColor = 'rgb(255,151,0)';
-    else if (state === 'fan' || state === 'fan_only') statusColor = 'rgb(0,188,213)';
-    else if (state === 'auto') statusColor = 'rgb(238,130,238)'
-    return {
-			series: [{
-        data: data
-      }],
-      chart: {
-        type: 'area',
-        height: '20%',
-        width: '100%',
-        sparkline: { enabled: true },
-        animations: { enabled: false },
-        toolbar: { show: false },
-				redrawOnParentResize: true},
-      colors: [statusColor],
-      stroke: {
-        width: 1,
-        curve: 'smooth'
-      },
-      fill: {
-        type: 'gradient',
-        gradient: {
-          shadeIntensity: 0.5,
-          opacityFrom: 0.6,
-          opacityTo: 0.2,
-          stops: [0, 100],
-          colorStops: [
-            { offset: 0, color: statusColor, opacity: 0.6 },
-            { offset: 100, color: statusColor, opacity: 0.2 }
-          ]
-        }
-      },
-      xaxis: {
-        labels: { show: false },
-        axisBorder: { show: false },
-        axisTicks: { show: false },
-        tooltip: { enabled: false }
-      },
-      yaxis: {
-          show: false,
-          min: Math.min(...data.map(d => d[1])) - 1
-      },
-      grid: { show: false },
-      tooltip: { enabled: false},
-      dataLabels: { enabled: false },
-      legend: { show: false },
-      markers: { size: 0 }
-    }
-	}
+	const theme = this._evaluateTheme(); 
+    let statusColor = theme === 'on' ? '#323232' : '#dcdcdc';
+    if (state === 'cool') statusColor = '#2ba0f3';
+    else if (state === 'heat') statusColor = '#fe6f21';
+    else if (state === 'dry') statusColor = '#ff9700';
+    else if (state === 'fan' || state === 'fan_only') statusColor = '#00bcd5';
+    else if (state === 'auto') statusColor = '#ee82ee';
+      
+    if (!this.ctx || !this.temperatureData || this.temperatureData.length === 0) return;
+    const canvas = this.canvas;
+    const ctx = this.ctx;
+    const width = canvas.width / (window.devicePixelRatio || 1);
+    const height = canvas.height / (window.devicePixelRatio || 1);
+    ctx.clearRect(0, 0, width, height);
+    const minTemp = Math.min(...this.temperatureData)-1;
+    const maxTemp = Math.max(...this.temperatureData);
+    const tempRange = Math.max(maxTemp - minTemp, 0.1);
+    const xStep = width / (this.temperatureData.length - 1);
+    const points = this.temperatureData.map((temp, i) => {
+      return {
+        x: i * xStep,
+        y: height - ((temp - minTemp) / tempRange) * height,
+        value: temp 
+      };
+    });
+    ctx.beginPath();
+    this.drawMonotonicSpline(ctx, points);
+    ctx.lineTo(points[points.length-1].x, height);
+    ctx.lineTo(points[0].x, height);
+    ctx.closePath();
+    const gradient = ctx.createLinearGradient(0, 0, 0, height);
+    gradient.addColorStop(0, statusColor+'60');
+    gradient.addColorStop(1, statusColor+'20');
+    ctx.fillStyle = gradient;
+    ctx.fill();
+    ctx.beginPath();
+    this.drawMonotonicSpline(ctx, points);
+    ctx.strokeStyle = statusColor;
+    ctx.lineWidth = 1;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 5;
+    ctx.shadowOffsetY = 2;
+    ctx.stroke();
+  }
 
-  disconnectedCallback() {
-    if (this._chart) {
-      this._chart.destroy();
+  drawMonotonicSpline(ctx, points) {
+    if (points.length < 2) return;
+    ctx.moveTo(points[0].x, points[0].y);
+    const slopes = this.calculateMonotonicSlopes(points);
+    for (let i = 0; i < points.length - 1; i++) {
+      const p0 = points[i];
+      const p1 = points[i+1];
+      const m0 = slopes[i];
+      const m1 = slopes[i+1];
+      const dx = (p1.x - p0.x) / 3;
+      const cp1 = {
+        x: p0.x + dx,
+        y: p0.y + m0 * dx
+      };
+      const cp2 = {
+        x: p1.x - dx,
+        y: p1.y - m1 * dx
+      };
+      ctx.bezierCurveTo(cp1.x, cp1.y, cp2.x, cp2.y, p1.x, p1.y);
     }
-    super.disconnectedCallback();
+  }
+
+  calculateMonotonicSlopes(points) {
+    const slopes = new Array(points.length);
+    for (let i = 1; i < points.length - 1; i++) {
+      const prev = points[i-1];
+      const curr = points[i];
+      const next = points[i+1];
+      const h1 = curr.x - prev.x;
+      const h2 = next.x - curr.x;
+      const s1 = (curr.y - prev.y) / h1;
+      const s2 = (next.y - curr.y) / h2;
+      if (s1 * s2 <= 0) {
+        slopes[i] = 0; 
+      } else {
+        slopes[i] = 3 * h1 * h2 / ( (h1 + h2) * (h1/s2 + h2/s1) );
+      }
+    }
+    slopes[0] = (points[1].y - points[0].y) / (points[1].x - points[0].x);
+    slopes[points.length-1] = (points[points.length-1].y - points[points.length-2].y) / (points[points.length-1].x - points[points.length-2].x);
+    return slopes;
   }
 
   render() {
