@@ -7,7 +7,9 @@ export class XiaoshiComputerCard extends LitElement {
           width: { type: String, attribute: true },
           config: { type: Object },
           theme: { type: String },
-          auto_show: { type: Boolean }
+          auto_show: { type: Boolean },
+          cpuData: { type: Array },
+          memoryData: { type: Array }
       };
   }
 
@@ -50,7 +52,7 @@ export class XiaoshiComputerCard extends LitElement {
             bottom: 0;
             left: 0;
             width: 100%;
-            height: auto;
+            height: 30%;
             overflow: hidden;
             z-index: 0;
             pointer-events: none;
@@ -61,7 +63,7 @@ export class XiaoshiComputerCard extends LitElement {
             bottom: 0;
             left: 0;
             width: 100%;
-            height: auto;
+            height: 30%;
             overflow: hidden;
             z-index: 0;
             pointer-events: none;
@@ -224,6 +226,12 @@ export class XiaoshiComputerCard extends LitElement {
       this.config = {};
       this.theme = 'on';
       this.width = '100%';
+      this.cpuData = [];
+      this.memoryData = [];
+      this.cpuCanvas = null;
+      this.memoryCanvas = null;
+      this.cpuCtx = null;
+      this.memoryCtx = null;
   }
 
    _handleClick() {
@@ -248,19 +256,13 @@ export class XiaoshiComputerCard extends LitElement {
   }
   
   async firstUpdated() {
-    await this._loadApexCharts();
-    this._fetchDataAndRenderChart();
+      await this._fetchDataAndRenderChart();
   }
   
-  async _loadApexCharts() {
-    if (!window.ApexCharts) {
-      await new Promise((resolve) => {
-        const script = document.createElement('script');
-        script.src = 'https://cdn.jsdelivr.net/npm/apexcharts';
-        script.onload = resolve;
-        document.head.appendChild(script);
-      });
-    }
+  async updated(changedProperties) {
+      if (changedProperties.has('hass') || changedProperties.has('config')) {
+          await this._fetchDataAndRenderChart();
+      }
   }
 
   async _fetchDataAndRenderChart() {
@@ -282,89 +284,119 @@ export class XiaoshiComputerCard extends LitElement {
       });
 
       if (this.config.cpu && result?.[this.config.cpu]?.length) {
-        const cpuData = result[this.config.cpu]
-          .filter(entry => !isNaN(parseFloat(entry.s)))
-          .map(entry => [entry.lu * 1000, parseFloat(entry.s)])
-          .sort((a, b) => a[0] - b[0]);
-        this._renderChart(cpuData, 'cpu-chart-container', '#00C5CD');
+          this.cpuData = result[this.config.cpu]
+              .filter(entry => !isNaN(parseFloat(entry.s)))
+              .map(entry => parseFloat(entry.s));
       }
+      
       if (this.config.memory && result?.[this.config.memory]?.length) {
-        const memoryData = result[this.config.memory]
-          .filter(entry => !isNaN(parseFloat(entry.s)))
-          .map(entry => [entry.lu * 1000, parseFloat(entry.s)])
-          .sort((a, b) => a[0] - b[0]);
-        this._renderChart(memoryData, 'memory-chart-container', '#9C27B0');
+          this.memoryData = result[this.config.memory]
+              .filter(entry => !isNaN(parseFloat(entry.s)))
+              .map(entry => parseFloat(entry.s));
+      }
+      
+      this.initCanvas();
+      this.drawCharts();
+  }
+
+  initCanvas() {
+      if (!this.cpuCanvas) {
+          this.cpuCanvas = document.createElement('canvas');
+          this.cpuCanvas.className = 'canvas-layer';
+          this.shadowRoot.querySelector('#cpu-chart-container').appendChild(this.cpuCanvas);
+          this.cpuCtx = this.cpuCanvas.getContext('2d');
+      }
+      
+      if (!this.memoryCanvas) {
+          this.memoryCanvas = document.createElement('canvas');
+          this.memoryCanvas.className = 'canvas-layer';
+          this.shadowRoot.querySelector('#memory-chart-container').appendChild(this.memoryCanvas);
+          this.memoryCtx = this.memoryCanvas.getContext('2d');
+      }
+      
+      const scale = window.devicePixelRatio || 1;
+      
+      const cpuContainer = this.shadowRoot.querySelector('#cpu-chart-container');
+      const cpuWidth = cpuContainer.clientWidth;
+      const cpuHeight = cpuContainer.clientHeight;
+      this.cpuCanvas.width = cpuWidth * scale;
+      this.cpuCanvas.height = cpuHeight * scale;
+      this.cpuCtx.scale(scale, scale);
+      
+      const memoryContainer = this.shadowRoot.querySelector('#memory-chart-container');
+      const memoryWidth = memoryContainer.clientWidth;
+      const memoryHeight = memoryContainer.clientHeight;
+      this.memoryCanvas.width = memoryWidth * scale;
+      this.memoryCanvas.height = memoryHeight * scale;
+      this.memoryCtx.scale(scale, scale);
+  }
+
+  drawCharts() {
+      if (this.cpuData.length > 0) {
+          this.drawLineChart(
+              this.cpuCtx, 
+              this.cpuData, 
+              'rgba(0, 255, 255, 0.2)', // 青色填充
+              '#00FFFF' // 青色线条
+          );
+      }
+      
+      if (this.memoryData.length > 0) {
+          this.drawLineChart(
+              this.memoryCtx, 
+              this.memoryData, 
+              'rgba(128, 0, 128, 0.2)', // 紫色填充
+              '#800080' // 紫色线条
+          );
       }
   }
 
-  _renderChart(data, containerId, color) {
-    const container = this.shadowRoot.getElementById(containerId);
-    if (!container) return;
-    
-    container.innerHTML = '';
-    
-    if (this[`_${containerId}_chart`]) {
-      this[`_${containerId}_chart`].destroy();
-    }
+  drawLineChart(ctx, data, fillColor, strokeColor) {
+      if (!ctx || !data || data.length === 0) return;
 
-    this[`_${containerId}_chart`] = new ApexCharts(container, {
-      series: [{
-        data: data
-      }],
-      chart: {
-        type: 'area',
-        height: '50%',
-        width: '100%',
-        sparkline: { enabled: true },
-        animations: { enabled: false },
-        toolbar: { show: false }
-      },
-      colors: [color],
-      stroke: {
-        width: 1,
-        curve: 'smooth'
-      },
-      fill: {
-        type: 'gradient',
-        gradient: {
-          shadeIntensity: 0.5,
-          opacityFrom: 0.6,
-          opacityTo: 0.2,
-          stops: [0, 100],
-          colorStops: [
-            { offset: 0, color: color, opacity: 0.6 },
-            { offset: 100, color: color, opacity: 0.3 }
-          ]
-        }
-      },
-      xaxis: {
-        labels: { show: false },
-        axisBorder: { show: false },
-        axisTicks: { show: false },
-        tooltip: { enabled: false }
-      },
-      yaxis: {
-        show: false,
-        min: Math.min(...data.map(d => d[1]))
-      },
-      grid: { show: false },
-      tooltip: { enabled: false},
-      dataLabels: { enabled: false },
-      legend: { show: false },
-      markers: { size: 0 }
-    });
+      const canvas = ctx.canvas;
+      const width = canvas.width / (window.devicePixelRatio || 1);
+      const height = canvas.height / (window.devicePixelRatio || 1);
+      
+      ctx.clearRect(0, 0, width, height);
+      
+      const minValue = Math.min(...data)-5;
+      const maxValue = Math.max(...data);
+      const valueRange = maxValue - minValue || 1;
+    
+      const xStep = width / (data.length - 1);
 
-    this[`_${containerId}_chart`].render();
-  }
-  
-  disconnectedCallback() {
-    if (this._cpu_chart) {
-      this._cpu_chart.destroy();
-    }
-    if (this._memory_chart) {
-      this._memory_chart.destroy();
-    }
-    super.disconnectedCallback();
+      ctx.beginPath();
+      ctx.moveTo(
+          0, height - ((data[0] - minValue) / valueRange * height)
+      );
+      for (let i = 1; i < data.length; i++) {
+          ctx.lineTo(
+              i * xStep,height - ((data[i] - minValue) / valueRange * height)
+          );
+      }
+      
+      ctx.lineTo((data.length - 1) * xStep, height);
+      ctx.lineTo(0, height);
+      ctx.closePath();
+      ctx.fillStyle = fillColor;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(
+          0,height - ((data[0] - minValue) / valueRange * height)
+      );
+      
+      for (let i = 1; i < data.length; i++) {
+          ctx.lineTo(
+              i * xStep,height - ((data[i] - minValue) / valueRange * height)
+          );
+      }
+      
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = 1;
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+      ctx.stroke();
   }
   
   _getRingColor(value) {
@@ -389,50 +421,50 @@ export class XiaoshiComputerCard extends LitElement {
       const name = this._getEntityName(entityId);
       const color = this._getRingColor(value);
       const strokeDasharray = value !== undefined ? `${value} 100` : '0 100';
-      const size = 'min(48px, 13vw)'; // 定义基础大小
+      const size = 'min(48px, 13vw)'; 
       const theme = this._evaluateTheme();
       const fgColor = theme === 'on' ? 'rgb(50, 50, 50)' : 'rgb(240, 240, 240)';
-    return html`
-        <div class="ring-container">
-            <svg class="ring-circle" 
-                 width=${size} 
-                 height=${size}
-                 viewBox="0 0 40 40">
-                <circle cx="20" cy="20" r="15.915" fill="none" stroke="${fgColor}" stroke-width="3"></circle>
-                <circle cx="20" cy="20" r="15.915" fill="none" stroke="${color}" 
-                        stroke-width="3" stroke-dasharray="${strokeDasharray}"></circle>
-            </svg>
-            <div class="ring-text">
-                <span class="ring-name">${name}</span>
-                <span class="ring-value">${value !== undefined ? `${Math.round(value)}%` : '--%'}</span>
-            </div>
-        </div>
-    `;
+      return html`
+          <div class="ring-container">
+              <svg class="ring-circle" 
+                  width=${size} 
+                  height=${size}
+                  viewBox="0 0 40 40">
+                  <circle cx="20" cy="20" r="15.915" fill="none" stroke="${fgColor}" stroke-width="3"></circle>
+                  <circle cx="20" cy="20" r="15.915" fill="none" stroke="${color}" 
+                          stroke-width="3" stroke-dasharray="${strokeDasharray}"></circle>
+              </svg>
+              <div class="ring-text">
+                  <span class="ring-name">${name}</span>
+                  <span class="ring-value">${value !== undefined ? `${Math.round(value)}%` : '--%'}</span>
+              </div>
+          </div>
+      `;
 }
 
-    _getStatusText() {
-        const entity = this.hass.states[this.config.entity];
-        if (!entity) return html`<span>状态未知</span>`;
-        
-        const isOn = entity.state === 'on';
-        if (!isOn) return html`<span>&nbsp;关机</span>`;
-        
-        const parts = [html`<span>&nbsp;开机:&nbsp;</span>`];
-        
-        if (this.config.cpu) {
-            const cpuValue = this._getEntityValue(this.config.cpu);
-            parts.push(html`<span> CPU&nbsp;</span>`);
-            parts.push(html`<span class="status-value">${cpuValue !== undefined ? `${Math.round(cpuValue)}%` : '--%'}</span>`);
-        }
-        
-        if (this.config.memory) {
-            const memValue = this._getEntityValue(this.config.memory);
-            parts.push(html`<span> 内存&nbsp;</span>`);
-            parts.push(html`<span class="status-value">${memValue !== undefined ? `${Math.round(memValue)}%` : '--%'}</span>`);
-        }
-        
-        return html`${parts}`;
-    }
+  _getStatusText() {
+      const entity = this.hass.states[this.config.entity];
+      if (!entity) return html`<span>状态未知</span>`;
+      
+      const isOn = entity.state === 'on';
+      if (!isOn) return html`<span>&nbsp;关机</span>`;
+      
+      const parts = [html`<span>&nbsp;开机:&nbsp;</span>`];
+      
+      if (this.config.cpu) {
+          const cpuValue = this._getEntityValue(this.config.cpu);
+          parts.push(html`<span> CPU&nbsp;</span>`);
+          parts.push(html`<span class="status-value">${cpuValue !== undefined ? `${Math.round(cpuValue)}%` : '--%'}</span>`);
+      }
+      
+      if (this.config.memory) {
+          const memValue = this._getEntityValue(this.config.memory);
+          parts.push(html`<span> 内存&nbsp;</span>`);
+          parts.push(html`<span class="status-value">${memValue !== undefined ? `${Math.round(memValue)}%` : '--%'}</span>`);
+      }
+      
+      return html`${parts}`;
+  }
 
   render() {
       if (!this.hass || !this.config.entity) {
@@ -456,7 +488,6 @@ export class XiaoshiComputerCard extends LitElement {
       const bgColor = theme === 'on' ? 'rgb(255, 255, 255)' : 'rgb(50, 50, 50)';
       const statusColor = isOn ? '#2196f3' : '';
       
-      // 收集所有要显示的圆环实体
       const ringEntities = [];
       if (this.config.cpu) ringEntities.push(this.config.cpu);
       if (this.config.memory) ringEntities.push(this.config.memory);
