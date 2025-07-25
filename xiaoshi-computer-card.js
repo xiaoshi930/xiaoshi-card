@@ -299,105 +299,118 @@ export class XiaoshiComputerCard extends LitElement {
       this.drawCharts();
   }
 
-  initCanvas() {
-      if (!this.cpuCanvas) {
-          this.cpuCanvas = document.createElement('canvas');
-          this.cpuCanvas.className = 'canvas-layer';
-          this.shadowRoot.querySelector('#cpu-chart-container').appendChild(this.cpuCanvas);
-          this.cpuCtx = this.cpuCanvas.getContext('2d');
-      }
-      
-      if (!this.memoryCanvas) {
-          this.memoryCanvas = document.createElement('canvas');
-          this.memoryCanvas.className = 'canvas-layer';
-          this.shadowRoot.querySelector('#memory-chart-container').appendChild(this.memoryCanvas);
-          this.memoryCtx = this.memoryCanvas.getContext('2d');
-      }
-      
-      const scale = window.devicePixelRatio || 1;
-      
-      const cpuContainer = this.shadowRoot.querySelector('#cpu-chart-container');
-      const cpuWidth = cpuContainer.clientWidth;
-      const cpuHeight = cpuContainer.clientHeight;
-      this.cpuCanvas.width = cpuWidth * scale;
-      this.cpuCanvas.height = cpuHeight * scale;
-      this.cpuCtx.scale(scale, scale);
-      
-      const memoryContainer = this.shadowRoot.querySelector('#memory-chart-container');
-      const memoryWidth = memoryContainer.clientWidth;
-      const memoryHeight = memoryContainer.clientHeight;
-      this.memoryCanvas.width = memoryWidth * scale;
-      this.memoryCanvas.height = memoryHeight * scale;
-      this.memoryCtx.scale(scale, scale);
-  }
-
-  drawCharts() {
-      if (this.cpuData.length > 0) {
-          this.drawLineChart(
-              this.cpuCtx, 
-              this.cpuData, 
-              'rgba(0, 255, 255, 0.2)', // 青色填充
-              '#00FFFF' // 青色线条
-          );
-      }
-      
-      if (this.memoryData.length > 0) {
-          this.drawLineChart(
-              this.memoryCtx, 
-              this.memoryData, 
-              'rgba(128, 0, 128, 0.2)', // 紫色填充
-              '#800080' // 紫色线条
-          );
-      }
-  }
-
-  drawLineChart(ctx, data, fillColor, strokeColor) {
-      if (!ctx || !data || data.length === 0) return;
-
-      const canvas = ctx.canvas;
-      const width = canvas.width / (window.devicePixelRatio || 1);
-      const height = canvas.height / (window.devicePixelRatio || 1);
-      
-      ctx.clearRect(0, 0, width, height);
-      
-      const minValue = Math.min(...data)-5;
-      const maxValue = Math.max(...data);
-      const valueRange = maxValue - minValue || 1;
+initCanvas() {
+    if (!this.cpuCanvas) {
+        this.cpuCanvas = document.createElement('canvas');
+        this.cpuCanvas.className = 'canvas-layer';
+        this.shadowRoot.querySelector('#cpu-chart-container').appendChild(this.cpuCanvas);
+    }
     
-      const xStep = width / (data.length - 1);
+    if (!this.memoryCanvas) {
+        this.memoryCanvas = document.createElement('canvas');
+        this.memoryCanvas.className = 'canvas-layer';
+        this.shadowRoot.querySelector('#memory-chart-container').appendChild(this.memoryCanvas);
+    }
+    
+    // 初始化CPU画布
+    this.initSingleCanvas(this.cpuCanvas, '#cpu-chart-container');
+    this.cpuCtx = this.cpuCanvas.getContext('2d');
+    
+    // 初始化内存画布
+    this.initSingleCanvas(this.memoryCanvas, '#memory-chart-container');
+    this.memoryCtx = this.memoryCanvas.getContext('2d');
+}
 
-      ctx.beginPath();
-      ctx.moveTo(
-          0, height - ((data[0] - minValue) / valueRange * height)
-      );
-      for (let i = 1; i < data.length; i++) {
-          ctx.lineTo(
-              i * xStep,height - ((data[i] - minValue) / valueRange * height)
-          );
-      }
-      
-      ctx.lineTo((data.length - 1) * xStep, height);
-      ctx.lineTo(0, height);
-      ctx.closePath();
-      ctx.fillStyle = fillColor;
-      ctx.fill();
-      ctx.beginPath();
-      ctx.moveTo(
-          0,height - ((data[0] - minValue) / valueRange * height)
-      );
-      
-      for (let i = 1; i < data.length; i++) {
-          ctx.lineTo(
-              i * xStep,height - ((data[i] - minValue) / valueRange * height)
-          );
-      }
-      
-      ctx.strokeStyle = strokeColor;
-      ctx.lineWidth = 1;
-      ctx.lineJoin = 'round';
-      ctx.lineCap = 'round';
-      ctx.stroke();
-  }
+initSingleCanvas(canvas, containerSelector) {
+    const container = this.shadowRoot.querySelector(containerSelector);
+    const scale = window.devicePixelRatio || 1;
+    
+    // 获取容器尺寸
+    const width = container.clientWidth;
+    const height = container.clientHeight;
+    
+    // 设置画布尺寸
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+    canvas.width = Math.floor(width * scale);
+    canvas.height = Math.floor(height * scale);
+    
+    // 获取上下文并设置缩放
+    const ctx = canvas.getContext('2d');
+    ctx.scale(scale, scale);
+    
+    return ctx;
+}
+
+drawCharts() {
+    if (this.cpuData.length > 0) {
+        this.drawLineChart(
+            this.cpuCtx, 
+            this.cpuData, 
+            'rgba(0, 255, 255, 0.2)', // 青色填充
+            '#00FFFF' // 青色线条
+        );
+    }
+    
+    if (this.memoryData.length > 0) {
+        this.drawLineChart(
+            this.memoryCtx, 
+            this.memoryData, 
+            'rgba(128, 0, 128, 0.2)', // 紫色填充
+            '#800080' // 紫色线条
+        );
+    }
+}
+
+drawLineChart(ctx, data, fillColor, strokeColor) {
+    if (!ctx || !data || data.length === 0) return;
+    
+    // 获取画布显示尺寸（CSS像素）
+    const canvas = ctx.canvas;
+    const scale = window.devicePixelRatio || 1;
+    const width = canvas.width / scale;
+    const height = canvas.height / scale;
+    
+    // 清除画布（使用物理像素尺寸）
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // 计算数据范围
+    const minValue = Math.min(...data);
+    const maxValue = Math.max(...data);
+    const valueRange = Math.max(maxValue - minValue, 1); // 防止除以0
+    
+    // 计算x轴步长
+    const xStep = data.length > 1 ? width / (data.length - 1) : width;
+    
+    // 绘制填充区域
+    ctx.beginPath();
+    ctx.moveTo(0, height - ((data[0] - minValue) / valueRange * height));
+    
+    for (let i = 1; i < data.length; i++) {
+        ctx.lineTo(i * xStep, height - ((data[i] - minValue) / valueRange * height));
+    }
+    
+    // 闭合路径形成填充区域
+    ctx.lineTo((data.length - 1) * xStep, height);
+    ctx.lineTo(0, height);
+    ctx.closePath();
+    ctx.fillStyle = fillColor;
+    ctx.fill();
+    
+    // 绘制线条
+    ctx.beginPath();
+    ctx.moveTo(0, height - ((data[0] - minValue) / valueRange * height));
+    
+    for (let i = 1; i < data.length; i++) {
+        ctx.lineTo(i * xStep, height - ((data[i] - minValue) / valueRange * height));
+    }
+    
+    ctx.strokeStyle = strokeColor;
+    ctx.lineWidth = 0.5; // 线宽不需要乘以scale，因为上下文已经缩放
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.stroke();
+}
   
   _getRingColor(value) {
       if (value === undefined || isNaN(value)) return '#aaaaaa';
