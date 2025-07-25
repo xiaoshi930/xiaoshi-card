@@ -1,4 +1,4 @@
-# 集合卡
+# 消逝集合卡
 ## 配置资源文件
 ~~~ 
 - url: /hacsfiles/xiaoshi-card/xiaoshi-card.js
@@ -284,7 +284,7 @@ entity: climate.kongtiao_keting
 temperature: sensor.woshi_wendu              ## 额外温度实体，覆盖空调当前温度，用于空调实体没有【当前温度】情况
 timer: timer.ke_ting_kong_diao_ding_shi_qi   ## 辅助元素：定时器实体
 theme: on                                    ## 可选on、off、或者函数返回值如'[[[ return theme() ]]]'
-auto_show: true                              ## 当有此选项时，空调关闭时，卡片隐藏
+auto_show: false                             ## 当有此选项时，空调关闭时，卡片隐藏
 width: 100%                                  ## 卡片宽度，可省略，默认100%
 buttons:                                     ## 附加按钮：辅热、节能、干燥、睡眠、提示音、指示灯等，没有可省略
   - switch.kongtiao_dryer_keting             ## 没有可省略
@@ -300,6 +300,7 @@ buttons:                                     ## 附加按钮：辅热、节能�
 type: custom:xiaoshi-computer-card
 entity: switch.diannao                       ## 电脑开关实体（来源开机卡）
 theme: on                                    ## 可选on、off、或者函数返回值如'[[[ return theme() ]]]'
+auto_show: false                             ## 当有此选项时，空调关闭时，卡片隐藏
 cpu: sensor.pc_cpu_usage                     ## 实体来源：windows电脑安装 IOT link，配置HA的mqtt服务器
 memory: sensor.pc_memory_usage               ## 实体来源：官网https://iotlink.gitlab.io/downloads.html
 storage:
