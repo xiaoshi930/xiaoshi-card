@@ -117,7 +117,7 @@ export class XiaoshiTimeCard extends LitElement {
           <div id="week">${this._getAttribute(this._lunarState, 'now_solar.星期A')}</div>
           <div id="jieqi">${this._getAttribute(this._lunarState, 'jieqi.节气')}</div>
           <div id="year">${this._getAttribute(this._lunarState, 'now_lunar.年')}</div>
-          <div id="mon">${this._getAttribute(this._lunarState, 'now_lunar.日期')}</div>
+          <div id="mon">${this._getAttribute(this._lunarState, 'now_lunar.日期').slice(-4)}</div>
           <div id="day">${this._getShichen()}</div>
           <div id="line"></div>
           <div id="shengri">${this._getAttribute(this._lunarState, 'shengriwarn.最近的生日.0')}</div>
