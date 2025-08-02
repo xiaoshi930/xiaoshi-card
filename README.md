@@ -68,22 +68,7 @@ url:
   - https://videos.xxapi.cn/228f4dd7318750dd.mp4 # 引用视频api网址的数组
 ~~~
 
-## 功能6：时间显示卡(平板端)
-**引用示例**
-~~~
-type: custom:xiaoshi-time-card
-entity: sensor.lunar               # 该实体需要配合NR使用
-mode: A                            # A是普通时钟，B是翻页时钟
-theme: '[[[ return theme() ]]]'    # 选项on是白色，选项off是黑色，也可以引用全局函数：'[[[ return theme()]]]'
-theme_on: rgb(120,40,40)   # 与背景色相同rgb(150,70,70) #再暗一点背景色rgb(90,10,10) 或其他颜色
-theme_off: rgb(50,50,50)
-filter: number.pad                 # 色相对应的实体
-popup_content:
-  type: custom:button-card         #弹出菜单需要button_card
-  template: 万年历平板端     
-~~~
-
-## 功能7：分布卡(温度分布、湿度分布)
+## 功能6：分布卡(温度分布、湿度分布)
 **引用示例**
 ~~~
 type: custom:xiaoshi-grid-card
@@ -102,7 +87,7 @@ max: 80                      # 当前地区最大值
 mode: 湿度                   # 【温度】或者【湿度】
 ~~~
 
-## 功能8：进度条
+## 功能7：进度条
 **引用示例**
 ~~~
 type: custom:xiaoshi-slider-card
@@ -118,7 +103,7 @@ style:
   track-radius: 4px                   # 圆角大小，默认2px
 ~~~
 
-## 功能9：国网表格（电费日历）(需要NR整合数据)
+## 功能8：国网表格（电费日历）(需要NR整合数据)
 **引用示例**
 ~~~
 type: custom:xiaoshi-state-grid-calendar
@@ -131,7 +116,7 @@ color_num: '#FF6347'        # 电量颜色，默认值：'#FF6347'
 color_cost: '#804aff'       # 电费颜色，默认值：'#804aff'
 ~~~
 
-## 功能10：国网表格（NR整合数据）
+## 功能9：国网表格（NR整合数据）
 **引用示例**
 ~~~
 type: custom:xiaoshi-state-grid-nodered
@@ -155,7 +140,7 @@ icon: none                  # 有此项时，不显示图标
 balance_name: '电费余额'     # 电费余额的名字
 ~~~
 
-## 功能11：国网表格（hassbox集成数据）
+## 功能10：国网表格（hassbox集成数据）
 **引用示例**
 ~~~
 type: custom:xiaoshi-state-grid-hassbox
@@ -181,7 +166,7 @@ n_num: none                 # 有此项时，不显示平相关数据
 balance_name: '电费余额'     # 电费余额的名字
 ~~~
 
-## 功能12：国网图表（日统计图表）
+## 功能11：国网图表（日统计图表）
 **引用示例**
 ~~~
 type: custom:xiaoshi-state-grid-chart-day
@@ -193,7 +178,7 @@ color_num: '#FF6347'        # 电量颜色，默认值：'#FF6347'
 color_cost: '#804aff'       # 电费颜色，默认值：'#804aff'
 ~~~
 
-## 功能13：国网图表（月统计图表）
+## 功能12：国网图表（月统计图表）
 **引用示例**
 ~~~
 type: custom:xiaoshi-state-grid-chart-month
@@ -205,7 +190,7 @@ color_num: '#FF6347'        # 电量颜色，默认值：'#FF6347'
 color_cost: '#804aff'       # 电费颜色，默认值：'#804aff'
 ~~~
 
-## 功能14：国网UI（手机端整合）
+## 功能13：国网UI（手机端整合）
 **引用示例**
 ~~~
 type: custom:xiaoshi-state-grid-phone
@@ -217,7 +202,7 @@ color_num: '#FF6347'        # 电量颜色，默认值：'#FF6347'
 color_cost: '#804aff'       # 电费颜色，默认值：'#804aff'
 ~~~
 
-## 功能15：国网UI（平板端整合）
+## 功能14：国网UI（平板端整合）
 **引用示例**
 ~~~
 type: custom:xiaoshi-state-grid-pad
@@ -229,54 +214,7 @@ color_num: '#FF6347'        # 电量颜色，默认值：'#FF6347'
 color_cost: '#804aff'       # 电费颜色，默认值：'#804aff'
 ~~~
 
-## 功能16：万年历手机端（需要配合NR）
-**引用示例**
-~~~
-type: custom:xiaoshi-lunar-phone
-lunar: seosor.lunar
-date: seosor.lunar_date
-theme: "off"                # 选项on是白色，选项off是黑色，也可以引用全局函数：'[[[ return theme()]]]'
-height: 90vh                # 总高度
-width: 100%                 # 总宽度
-~~~
-
-## 功能17：万年历平板端（需要配合NR）
-**引用示例**
-~~~
-type: custom:xiaoshi-lunar-pad
-lunar: seosor.lunar
-date: seosor.lunar_date
-theme: "off"                # 选项on是白色，选项off是黑色，也可以引用全局函数：'[[[ return theme()]]]'
-~~~
-
-
-## 功能18：万年历-其他零散card（需要配合NR）
-**引用示例**
-~~~
-type: custom:xiaoshi-lunar
-type: xiaoshi-lunar-head
-type: xiaoshi-lunar-body1
-type: xiaoshi-lunar-body2
-type: xiaoshi-lunar-body3
-type: xiaoshi-lunar-body4
-type: xiaoshi-lunar-body5
-type: xiaoshi-lunar-body6
-type: xiaoshi-lunar-body7
-type: xiaoshi-lunar-left1
-type: xiaoshi-lunar-left2
-type: xiaoshi-lunar-left3
-type: xiaoshi-lunar-left4
-type: xiaoshi-lunar-left5
-type: xiaoshi-lunar-left6
-type: xiaoshi-lunar-right1
-type: xiaoshi-lunar-right2
-type: xiaoshi-lunar-right3
-type: xiaoshi-lunar-right4
-type: xiaoshi-lunar-right5
-type: xiaoshi-lunar-right6
-~~~
-
-## 功能19：空调卡片
+## 功能15：空调卡片
 **引用示例**
 ~~~
 type: custom:xiaoshi-climate-card
@@ -294,7 +232,7 @@ buttons:                                     ## 附加按钮：辅热、节能�
   - switch.kongtiao_alarm_keting             ## 没有可省略
   - light.kongtiao_light_keting              ## 没有可省略
 ~~~
-## 功能20：电脑卡片
+## 功能16：电脑卡片
 **引用示例**
 ~~~
 type: custom:xiaoshi-computer-card
