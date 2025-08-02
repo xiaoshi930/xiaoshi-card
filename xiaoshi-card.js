@@ -1,4 +1,4 @@
-console.info("%c 消逝集合卡 \n%c   v 2.9.9 ", "color: red; font-weight: bold; background: black", "color: white; font-weight: bold; background: dimgray");
+console.info("%c 消逝集合卡 \n%c   v 3.0.0 ", "color: red; font-weight: bold; background: black", "color: white; font-weight: bold; background: dimgray");
 
 import { cardConfigs } from './xiaoshi-config.js';
 
@@ -11,7 +11,6 @@ const loadCards  = async () => {
     await import('./xiaoshi-video-card.js');
     await import('./xiaoshi-slider-card.js');
     await import('./xiaoshi-text-card.js');
-    await import('./xiaoshi-time-card.js');
     await import('./xiaoshi-grid-card.js');
     await import('./xiaoshi-stategrid-card.js');
     
