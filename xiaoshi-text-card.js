@@ -157,13 +157,6 @@ export class XiaoshiTextCard extends LitElement {
       value: this._value,
     });
 
-    if (!this.config.weather) return; 
-
-    this.hass.callService('qweather', 'set_city', {
-      entity_id: this.config.weather,
-      city: this._value,
-    });
-
   }
 
   setConfig(config) {
